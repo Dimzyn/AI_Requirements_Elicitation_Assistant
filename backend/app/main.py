@@ -5,6 +5,7 @@ from .config import settings
 from .db.mongo import init_indexes
 from .routers import auth as auth_router
 from .routers import sessions as sessions_router
+from .routers import dialogue as dialogue_router
 
 app = FastAPI(title="AI Probing Question Generator")
 app.add_middleware(
@@ -16,6 +17,7 @@ app.add_middleware(
 )
 app.include_router(auth_router.router)
 app.include_router(sessions_router.router)
+app.include_router(dialogue_router.router)
 
 
 @app.on_event("startup")
