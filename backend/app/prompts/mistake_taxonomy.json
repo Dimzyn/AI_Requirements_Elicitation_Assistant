@@ -1,0 +1,18 @@
+{
+  "mistakes": [
+    {"id": "leading", "desc": "Question presupposes an answer or solution.", "fix": "Rephrase to be neutral and open."},
+    {"id": "compound", "desc": "Asks more than one thing at once.", "fix": "Split into a single focused question."},
+    {"id": "vague", "desc": "Too abstract to act on.", "fix": "Add a concrete scenario or attribute."},
+    {"id": "yes_no", "desc": "Closed yes/no when richer info is needed.", "fix": "Convert to open 'how/why/what'."},
+    {"id": "assumption", "desc": "Treats an unverified assumption as fact.", "fix": "Surface and verify the assumption."},
+    {"id": "jargon", "desc": "Uses unexplained domain jargon.", "fix": "Use plain language."},
+    {"id": "off_topic", "desc": "Drifts from the current requirement focus.", "fix": "Tie back to the current topic."},
+    {"id": "duplicate", "desc": "Repeats a question already answered.", "fix": "Skip or refine to a deeper aspect."},
+    {"id": "solution_oriented", "desc": "Asks about implementation before need.", "fix": "Ask about the underlying need."},
+    {"id": "double_barrelled", "desc": "Bundles unrelated aspects.", "fix": "Separate concerns."},
+    {"id": "negative", "desc": "Phrased with double-negatives causing confusion.", "fix": "Restate positively."},
+    {"id": "speculative", "desc": "Asks user to guess future behaviour without data.", "fix": "Anchor to a concrete past scenario."},
+    {"id": "missing_nonfunctional", "desc": "Ignores NFRs when relevant (perf/security).", "fix": "Probe an NFR dimension."},
+    {"id": "missing_edge_case", "desc": "Doesn't probe edge cases.", "fix": "Ask about boundary/exception conditions."}
+  ]
+}

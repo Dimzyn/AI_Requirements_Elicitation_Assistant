@@ -1,0 +1,5 @@
+{
+  "concept": "Generate a follow-up question that elaborates on the most recently mentioned entity by the stakeholder. The question must reference the entity by name.",
+  "related_concept": "Generate a follow-up question that broadens the discussion to a related but unmentioned aspect (e.g., security, performance, edge cases).",
+  "general": "Generate a short, open probe such as 'Why?' or 'Can you expand on that?' to elicit more depth."
+}
