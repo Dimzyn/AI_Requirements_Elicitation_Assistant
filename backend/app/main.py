@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
+from .db.mongo import init_indexes
 
 app = FastAPI(title="AI Probing Question Generator")
 app.add_middleware(
@@ -11,6 +12,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def _startup():
+    await init_indexes()
 
 
 @app.get("/health")
