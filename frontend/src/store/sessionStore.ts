@@ -21,7 +21,12 @@ export const useSessionStore = create<State>((set) => ({
   sessions: [],
   setSessions: (sessions) => set({ sessions }),
   activeId: null,
-  setActive: (activeId) => set({ activeId, turns: [], requirements: [], status: "idle" }),
+  setActive: (activeId) =>
+    set((s) =>
+      s.activeId === activeId
+        ? {}
+        : { activeId, turns: [], requirements: [], status: "idle" }
+    ),
   turns: [],
   setTurns: (turns) => set({ turns }),
   appendTurns: (t) => set((s) => ({ turns: [...s.turns, ...t] })),

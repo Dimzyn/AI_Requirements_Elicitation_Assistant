@@ -3,12 +3,26 @@ import { useSessionStore } from "../../store/sessionStore";
 import { postMessage, postQuestion, getRequirements } from "../../api/sessions";
 import type { Turn } from "../../api/sessions";
 
-const QUESTIONS_PER_TURN = 5;
+const DEFAULT_COUNT = 3;
+const MIN_COUNT = 1;
+const MAX_COUNT = 5;
+
+function describeError(err: unknown): string {
+  const e = err as { response?: { status?: number; data?: { detail?: string } }; message?: string };
+  const status = e?.response?.status;
+  const detail = e?.response?.data?.detail;
+  if (status === 429) return "Gemini API rate limit reached. Wait a minute and try again.";
+  if (status === 401) return "You've been signed out. Refresh the page.";
+  if (detail) return String(detail);
+  return e?.message ?? "Something went wrong.";
+}
 
 export default function InputBox() {
   const { activeId, setStatus, appendTurns, setRequirements } = useSessionStore();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [count, setCount] = useState(DEFAULT_COUNT);
+  const [error, setError] = useState<string | null>(null);
 
   if (!activeId) return null;
 
@@ -18,9 +32,9 @@ export default function InputBox() {
     if (!content || busy) return;
 
     setBusy(true);
+    setError(null);
     setText("");
 
-    // 1) Optimistic stakeholder bubble — shows immediately.
     const tempId = `temp-${Date.now()}`;
     const optimistic: Turn = {
       id: tempId,
@@ -30,24 +44,28 @@ export default function InputBox() {
     };
     appendTurns([optimistic]);
 
+    setStatus("validating");
     try {
-      // 2) Persist stakeholder turn + extract requirements (fast).
-      setStatus("validating");
       const { stakeholder_turn_id } = await postMessage(activeId, content);
-
-      // Reconcile the optimistic id with the real one.
       useSessionStore.setState((s) => ({
-        turns: s.turns.map((t) =>
-          t.id === tempId ? { ...t, id: stakeholder_turn_id } : t
-        ),
+        turns: s.turns.map((t) => (t.id === tempId ? { ...t, id: stakeholder_turn_id } : t)),
       }));
+    } catch (err) {
+      // /messages failed — roll back the optimistic bubble and restore the textbox.
+      useSessionStore.setState((s) => ({ turns: s.turns.filter((t) => t.id !== tempId) }));
+      setText(content);
+      setError(describeError(err));
+      setStatus("idle");
+      setBusy(false);
+      return;
+    }
 
-      // Refresh requirements once after extraction.
-      getRequirements(activeId).then(setRequirements).catch(() => {});
+    // Best-effort: refresh requirements after extraction. Don't block the question loop on this.
+    getRequirements(activeId).then(setRequirements).catch(() => {});
 
-      // 3) Stream probing questions in one at a time.
-      setStatus("thinking");
-      for (let i = 0; i < QUESTIONS_PER_TURN; i++) {
+    setStatus("thinking");
+    for (let i = 0; i < count; i++) {
+      try {
         const q = await postQuestion(activeId);
         const agentTurn: Turn = {
           id: q.id,
@@ -57,39 +75,64 @@ export default function InputBox() {
           created_at: new Date().toISOString(),
         };
         appendTurns([agentTurn]);
+      } catch (err) {
+        // partial failure: keep what we have, show why we stopped
+        setError(`Stopped after ${i} of ${count} questions: ${describeError(err)}`);
+        break;
       }
-    } catch (err) {
-      // restore the input so the user can retry
-      setText(content);
-    } finally {
-      setStatus("idle");
-      setBusy(false);
     }
+
+    setStatus("idle");
+    setBusy(false);
   };
 
   return (
-    <form onSubmit={onSend} className="border-t bg-white p-4 flex gap-2">
-      <textarea
-        className="flex-1 border rounded p-2 text-sm resize-none"
-        rows={2}
-        placeholder="Describe what you want…"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            onSend(e);
-          }
-        }}
-        disabled={busy}
-      />
-      <button
-        type="submit"
-        disabled={busy || !text.trim()}
-        className="self-end bg-indigo-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-indigo-700 disabled:bg-slate-300"
-      >
-        Send
-      </button>
+    <form onSubmit={onSend} className="border-t bg-white p-4">
+      {error && (
+        <div className="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded">
+          {error}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <textarea
+          className="flex-1 border rounded p-2 text-sm resize-none"
+          rows={2}
+          placeholder="Describe what you want…"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSend(e);
+            }
+          }}
+          disabled={busy}
+        />
+        <div className="flex flex-col gap-1 items-stretch">
+          <label className="text-[10px] text-slate-500 text-right" title="Questions per turn">
+            Qs:&nbsp;
+            <select
+              value={count}
+              onChange={(e) => setCount(Number(e.target.value))}
+              disabled={busy}
+              className="border rounded text-xs px-1"
+            >
+              {Array.from({ length: MAX_COUNT - MIN_COUNT + 1 }, (_, i) => MIN_COUNT + i).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="submit"
+            disabled={busy || !text.trim()}
+            className="bg-indigo-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-indigo-700 disabled:bg-slate-300"
+          >
+            Send
+          </button>
+        </div>
+      </div>
     </form>
   );
 }
