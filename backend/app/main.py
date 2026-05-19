@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .db.mongo import init_indexes
 from .routers import auth as auth_router
+from .routers import sessions as sessions_router
 
 app = FastAPI(title="AI Probing Question Generator")
 app.add_middleware(
@@ -14,6 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_router.router)
+app.include_router(sessions_router.router)
 
 
 @app.on_event("startup")
