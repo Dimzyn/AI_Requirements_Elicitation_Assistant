@@ -30,3 +30,7 @@ export const postTurn = (id: string, content: string, count = 5) =>
   api.post<PostTurnResponse>(`/sessions/${id}/turns`, { content }, { params: { count } }).then((r) => r.data);
 export const getRequirements = (id: string) =>
   api.get<Requirement[]>(`/sessions/${id}/requirements`).then((r) => r.data);
+export const exportSession = (id: string, format: "md" | "txt" = "md") =>
+  api
+    .get(`/sessions/${id}/export`, { params: { format }, responseType: "blob" })
+    .then((r) => r.data as Blob);
