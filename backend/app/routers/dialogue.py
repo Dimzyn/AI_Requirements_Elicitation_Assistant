@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..db.mongo import get_db
 from ..deps import current_user_id_from_token
-from ..schemas.dialogue import TurnIn, QuestionOut, TurnResponse
+from ..schemas.dialogue import TurnIn, QuestionOut, TurnOut, TurnResponse
 from ..services.question_generator import QuestionGenerator
 from ..services.llm_service import LLMService
 from ..services.requirement_extractor import RequirementExtractor
@@ -100,3 +100,32 @@ async def post_turn(
         history.append({"role": "agent", "content": q.question, "strategy": q.strategy})
 
     return TurnResponse(stakeholder_turn_id=stakeholder_turn_id, questions=questions_out)
+
+
+@router.get("/{sid}/turns", response_model=list[TurnOut])
+async def list_turns(
+    sid: str,
+    user_id: str = Depends(current_user_id_from_token),
+):
+    db = get_db()
+    try:
+        oid = ObjectId(sid)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
+
+    session = await db.sessions.find_one({"_id": oid, "user_id": user_id})
+    if not session:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+
+    out: list[TurnOut] = []
+    async for t in db.turns.find({"session_id": sid}).sort("created_at", 1):
+        out.append(
+            TurnOut(
+                id=str(t["_id"]),
+                role=t["role"],
+                content=t["content"],
+                strategy=t.get("strategy"),
+                created_at=t["created_at"],
+            )
+        )
+    return out

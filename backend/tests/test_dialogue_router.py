@@ -106,6 +106,59 @@ async def test_401_when_unauthenticated():
 
 
 @pytest.mark.asyncio
+async def test_get_turns_returns_history_in_order(monkeypatch):
+    fg = FakeGen()
+    monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        token = await _signup_login(c)
+        h = {"Authorization": f"Bearer {token}"}
+        sid = (await c.post("/sessions", json={"project_title": "P"}, headers=h)).json()["id"]
+        post = await c.post(
+            f"/sessions/{sid}/turns",
+            json={"content": "I want a POS system."},
+            headers=h,
+        )
+        assert post.status_code == 200, post.text
+
+        r = await c.get(f"/sessions/{sid}/turns", headers=h)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        # 1 stakeholder + 5 agent turns (default count) = 6 total
+        assert isinstance(body, list)
+        assert len(body) == 6
+        # First turn is the stakeholder, with the original content
+        assert body[0]["role"] == "stakeholder"
+        assert body[0]["content"] == "I want a POS system."
+        # All agent turns carry a non-null strategy
+        agents = [t for t in body if t["role"] == "agent"]
+        assert len(agents) == 5
+        assert all(t.get("strategy") for t in agents)
+        # Sorted by created_at ascending
+        timestamps = [t["created_at"] for t in body]
+        assert timestamps == sorted(timestamps)
+
+
+@pytest.mark.asyncio
+async def test_get_turns_401_when_unauthenticated():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/sessions/507f1f77bcf86cd799439011/turns")
+        assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_turns_404_for_other_user():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        token_a = await _signup_login(c, "a@x.com")
+        token_b = await _signup_login(c, "b@x.com")
+        ha = {"Authorization": f"Bearer {token_a}"}
+        hb = {"Authorization": f"Bearer {token_b}"}
+        sid_a = (await c.post("/sessions", json={"project_title": "A"}, headers=ha)).json()["id"]
+        r = await c.get(f"/sessions/{sid_a}/turns", headers=hb)
+        assert r.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_extractor_persists_requirements(monkeypatch):
     fg = FakeGen()
     fx = FakeExtractor(items=[

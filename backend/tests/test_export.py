@@ -74,3 +74,62 @@ async def test_export_401_when_unauthenticated():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         r = await c.get("/sessions/507f1f77bcf86cd799439011/export")
         assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_requirements_returns_seeded_items():
+    from datetime import datetime, timedelta
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        token = await _signup_login(c)
+        h = {"Authorization": f"Bearer {token}"}
+        sid = (await c.post("/sessions", json={"project_title": "POS"}, headers=h)).json()["id"]
+        from app.db.mongo import get_db
+        base = datetime.utcnow()
+        await get_db().requirements.insert_many([
+            {
+                "session_id": sid,
+                "statement": "Cashiers can ring up sales.",
+                "type": "functional",
+                "source_turn_id": "turn-1",
+                "created_at": base,
+            },
+            {
+                "session_id": sid,
+                "statement": "P95 latency below 3s.",
+                "type": "non_functional",
+                "source_turn_id": "turn-1",
+                "created_at": base + timedelta(seconds=1),
+            },
+        ])
+        r = await c.get(f"/sessions/{sid}/requirements", headers=h)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert isinstance(body, list)
+        assert len(body) == 2
+        # ordered by created_at ascending
+        assert body[0]["statement"] == "Cashiers can ring up sales."
+        assert body[0]["type"] == "functional"
+        assert body[0]["source_turn_id"] == "turn-1"
+        assert body[0]["created_at"]
+        assert body[0]["id"]
+        assert body[1]["statement"] == "P95 latency below 3s."
+        assert body[1]["type"] == "non_functional"
+
+
+@pytest.mark.asyncio
+async def test_get_requirements_401_when_unauthenticated():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/sessions/507f1f77bcf86cd799439011/requirements")
+        assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_requirements_404_for_other_user():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        token_a = await _signup_login(c, "a@x.com")
+        token_b = await _signup_login(c, "b@x.com")
+        ha = {"Authorization": f"Bearer {token_a}"}
+        hb = {"Authorization": f"Bearer {token_b}"}
+        sid_a = (await c.post("/sessions", json={"project_title": "A"}, headers=ha)).json()["id"]
+        r = await c.get(f"/sessions/{sid_a}/requirements", headers=hb)
+        assert r.status_code == 404

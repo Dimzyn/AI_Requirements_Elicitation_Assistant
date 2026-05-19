@@ -1,5 +1,6 @@
+from datetime import datetime
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 
 
 class TurnIn(BaseModel):
@@ -15,3 +16,11 @@ class QuestionOut(BaseModel):
 class TurnResponse(BaseModel):
     stakeholder_turn_id: str
     questions: List[QuestionOut]
+
+
+class TurnOut(BaseModel):
+    id: str
+    role: str
+    content: str
+    strategy: Optional[str] = None
+    created_at: datetime
