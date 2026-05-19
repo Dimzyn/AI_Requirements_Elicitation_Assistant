@@ -7,12 +7,17 @@ from ..deps import current_user_id_from_token
 from ..schemas.dialogue import TurnIn, QuestionOut, TurnResponse
 from ..services.question_generator import QuestionGenerator
 from ..services.llm_service import LLMService
+from ..services.requirement_extractor import RequirementExtractor
 
 router = APIRouter(prefix="/sessions", tags=["dialogue"])
 
 
 def _make_generator() -> QuestionGenerator:
     return QuestionGenerator(llm=LLMService())
+
+
+def _make_extractor() -> RequirementExtractor:
+    return RequirementExtractor(llm=LLMService())
 
 
 @router.post("/{sid}/turns", response_model=TurnResponse)
@@ -41,6 +46,26 @@ async def post_turn(
     }
     res = await db.turns.insert_one(stakeholder_doc)
     stakeholder_turn_id = str(res.inserted_id)
+
+    extractor = _make_extractor()
+    try:
+        extracted = await extractor.extract(body.content)
+    except Exception:
+        extracted = []
+    if extracted:
+        docs = [
+            {
+                "session_id": sid,
+                "statement": r["statement"],
+                "type": r["type"],
+                "source_turn_id": stakeholder_turn_id,
+                "created_at": now,
+            }
+            for r in extracted
+            if r.get("statement") and r.get("type")
+        ]
+        if docs:
+            await db.requirements.insert_many(docs)
 
     history: list[dict] = []
     async for t in db.turns.find({"session_id": sid}).sort("created_at", 1):
