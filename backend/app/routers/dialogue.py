@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..db.mongo import get_db
 from ..deps import current_user_id_from_token
-from ..schemas.dialogue import TurnIn, QuestionOut, TurnOut, TurnResponse
+from ..schemas.dialogue import TurnIn, QuestionOut, TurnOut, TurnResponse, MessageResponse
 from ..services.question_generator import QuestionGenerator
 from ..services.llm_service import LLMService
 from ..services.requirement_extractor import RequirementExtractor
@@ -100,6 +100,95 @@ async def post_turn(
         history.append({"role": "agent", "content": q.question, "strategy": q.strategy})
 
     return TurnResponse(stakeholder_turn_id=stakeholder_turn_id, questions=questions_out)
+
+
+@router.post("/{sid}/messages", response_model=MessageResponse)
+async def post_message(
+    sid: str,
+    body: TurnIn,
+    user_id: str = Depends(current_user_id_from_token),
+):
+    db = get_db()
+    try:
+        oid = ObjectId(sid)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
+    session = await db.sessions.find_one({"_id": oid, "user_id": user_id})
+    if not session:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+
+    now = datetime.utcnow()
+    stakeholder_doc = {
+        "session_id": sid,
+        "role": "stakeholder",
+        "content": body.content,
+        "created_at": now,
+    }
+    res = await db.turns.insert_one(stakeholder_doc)
+    stakeholder_turn_id = str(res.inserted_id)
+
+    extractor = _make_extractor()
+    try:
+        extracted = await extractor.extract(body.content)
+    except Exception:
+        extracted = []
+    if extracted:
+        docs = [
+            {
+                "session_id": sid,
+                "statement": r["statement"],
+                "type": r["type"],
+                "source_turn_id": stakeholder_turn_id,
+                "created_at": now,
+            }
+            for r in extracted
+            if r.get("statement") and r.get("type")
+        ]
+        if docs:
+            await db.requirements.insert_many(docs)
+
+    return MessageResponse(stakeholder_turn_id=stakeholder_turn_id)
+
+
+@router.post("/{sid}/questions", response_model=QuestionOut)
+async def post_question(
+    sid: str,
+    user_id: str = Depends(current_user_id_from_token),
+):
+    db = get_db()
+    try:
+        oid = ObjectId(sid)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
+    session = await db.sessions.find_one({"_id": oid, "user_id": user_id})
+    if not session:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+
+    history: list[dict] = []
+    async for t in db.turns.find({"session_id": sid}).sort("created_at", 1):
+        history.append({
+            "role": t["role"],
+            "content": t["content"],
+            "strategy": t.get("strategy"),
+        })
+
+    gen = _make_generator()
+    q = await gen.next_question(
+        phase=session["phase"],
+        summary=session.get("summary") or "",
+        history=history,
+    )
+    agent_doc = {
+        "session_id": sid,
+        "role": "agent",
+        "content": q.question,
+        "strategy": q.strategy,
+        "validator_attempts": q.attempts,
+        "validator_verdict": "valid" if q.valid else "invalid",
+        "created_at": datetime.utcnow(),
+    }
+    res = await db.turns.insert_one(agent_doc)
+    return QuestionOut(id=str(res.inserted_id), content=q.question, strategy=q.strategy)
 
 
 @router.get("/{sid}/turns", response_model=list[TurnOut])

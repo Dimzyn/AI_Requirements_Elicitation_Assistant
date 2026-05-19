@@ -28,6 +28,10 @@ export const archiveSession = (id: string) =>
 export const getTurns = (id: string) => api.get<Turn[]>(`/sessions/${id}/turns`).then((r) => r.data);
 export const postTurn = (id: string, content: string, count = 5) =>
   api.post<PostTurnResponse>(`/sessions/${id}/turns`, { content }, { params: { count } }).then((r) => r.data);
+export const postMessage = (id: string, content: string) =>
+  api.post<{ stakeholder_turn_id: string }>(`/sessions/${id}/messages`, { content }).then((r) => r.data);
+export const postQuestion = (id: string) =>
+  api.post<{ id: string; content: string; strategy: string }>(`/sessions/${id}/questions`).then((r) => r.data);
 export const getRequirements = (id: string) =>
   api.get<Requirement[]>(`/sessions/${id}/requirements`).then((r) => r.data);
 export const exportSession = (id: string, format: "md" | "txt" = "md") =>

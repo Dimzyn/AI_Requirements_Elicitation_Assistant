@@ -18,6 +18,10 @@ class TurnResponse(BaseModel):
     questions: List[QuestionOut]
 
 
+class MessageResponse(BaseModel):
+    stakeholder_turn_id: str
+
+
 class TurnOut(BaseModel):
     id: str
     role: str

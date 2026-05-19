@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { useSessionStore } from "../../store/sessionStore";
-import { postTurn, getTurns, getRequirements } from "../../api/sessions";
+import { postMessage, postQuestion, getRequirements } from "../../api/sessions";
+import type { Turn } from "../../api/sessions";
+
+const QUESTIONS_PER_TURN = 5;
 
 export default function InputBox() {
-  const { activeId, setStatus, setTurns, setRequirements } = useSessionStore();
+  const { activeId, setStatus, appendTurns, setRequirements } = useSessionStore();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -13,21 +16,50 @@ export default function InputBox() {
     e.preventDefault();
     const content = text.trim();
     if (!content || busy) return;
+
     setBusy(true);
-    setStatus("thinking");
+    setText("");
+
+    // 1) Optimistic stakeholder bubble — shows immediately.
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: Turn = {
+      id: tempId,
+      role: "stakeholder",
+      content,
+      created_at: new Date().toISOString(),
+    };
+    appendTurns([optimistic]);
+
     try {
-      setText("");
-      await postTurn(activeId, content, 5);
+      // 2) Persist stakeholder turn + extract requirements (fast).
       setStatus("validating");
-      // refresh full state
-      const [turns, reqs] = await Promise.all([
-        getTurns(activeId),
-        getRequirements(activeId),
-      ]);
-      setTurns(turns);
-      setRequirements(reqs);
+      const { stakeholder_turn_id } = await postMessage(activeId, content);
+
+      // Reconcile the optimistic id with the real one.
+      useSessionStore.setState((s) => ({
+        turns: s.turns.map((t) =>
+          t.id === tempId ? { ...t, id: stakeholder_turn_id } : t
+        ),
+      }));
+
+      // Refresh requirements once after extraction.
+      getRequirements(activeId).then(setRequirements).catch(() => {});
+
+      // 3) Stream probing questions in one at a time.
+      setStatus("thinking");
+      for (let i = 0; i < QUESTIONS_PER_TURN; i++) {
+        const q = await postQuestion(activeId);
+        const agentTurn: Turn = {
+          id: q.id,
+          role: "agent",
+          content: q.content,
+          strategy: q.strategy,
+          created_at: new Date().toISOString(),
+        };
+        appendTurns([agentTurn]);
+      }
     } catch (err) {
-      // restore text if call failed
+      // restore the input so the user can retry
       setText(content);
     } finally {
       setStatus("idle");

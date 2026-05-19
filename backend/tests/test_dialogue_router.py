@@ -185,3 +185,77 @@ async def test_extractor_persists_requirements(monkeypatch):
         # source_turn_id is the stakeholder turn we just inserted
         body = r.json()
         assert all(d["source_turn_id"] == body["stakeholder_turn_id"] for d in rows)
+
+
+@pytest.mark.asyncio
+async def test_post_message_persists_stakeholder_and_extracts_requirements(monkeypatch):
+    fx = FakeExtractor(items=[{"statement": "Users can log in.", "type": "functional"}])
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: fx)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        token = await _signup_login(c)
+        h = {"Authorization": f"Bearer {token}"}
+        sid = (await c.post("/sessions", json={"project_title": "P"}, headers=h)).json()["id"]
+        r = await c.post(f"/sessions/{sid}/messages", json={"content": "I want auth."}, headers=h)
+        assert r.status_code == 200, r.text
+        assert r.json()["stakeholder_turn_id"]
+        # turn was persisted
+        turns = (await c.get(f"/sessions/{sid}/turns", headers=h)).json()
+        assert len(turns) == 1
+        assert turns[0]["role"] == "stakeholder"
+        assert turns[0]["content"] == "I want auth."
+        # requirement was extracted
+        from app.db.mongo import get_db
+        reqs = [d async for d in get_db().requirements.find({"session_id": sid})]
+        assert len(reqs) == 1
+
+
+@pytest.mark.asyncio
+async def test_post_message_404_other_user(monkeypatch):
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        ta = await _signup_login(c, "a@x.com")
+        tb = await _signup_login(c, "b@x.com")
+        sid = (await c.post("/sessions", json={"project_title": "A"}, headers={"Authorization": f"Bearer {ta}"})).json()["id"]
+        r = await c.post(f"/sessions/{sid}/messages", json={"content": "x"}, headers={"Authorization": f"Bearer {tb}"})
+        assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_post_question_generates_one_from_history(monkeypatch):
+    fg = FakeGen()
+    monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        token = await _signup_login(c)
+        h = {"Authorization": f"Bearer {token}"}
+        sid = (await c.post("/sessions", json={"project_title": "P"}, headers=h)).json()["id"]
+        # seed a stakeholder turn first
+        await c.post(f"/sessions/{sid}/messages", json={"content": "I want a POS."}, headers=h)
+        # generate one question
+        r = await c.post(f"/sessions/{sid}/questions", headers=h)
+        assert r.status_code == 200, r.text
+        q = r.json()
+        assert q["content"].startswith("Q")
+        assert q["strategy"] == "concept"
+        # verify FakeGen saw a history with 1 stakeholder turn
+        assert fg.history_lengths == [1]
+
+
+@pytest.mark.asyncio
+async def test_post_question_404_other_user(monkeypatch):
+    monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: FakeGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        ta = await _signup_login(c, "a@x.com")
+        tb = await _signup_login(c, "b@x.com")
+        sid = (await c.post("/sessions", json={"project_title": "A"}, headers={"Authorization": f"Bearer {ta}"})).json()["id"]
+        r = await c.post(f"/sessions/{sid}/questions", headers={"Authorization": f"Bearer {tb}"})
+        assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_post_message_and_question_401_unauthed():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        r1 = await c.post("/sessions/507f1f77bcf86cd799439011/messages", json={"content": "x"})
+        r2 = await c.post("/sessions/507f1f77bcf86cd799439011/questions")
+        assert r1.status_code == 401
+        assert r2.status_code == 401
