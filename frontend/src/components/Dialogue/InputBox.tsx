@@ -3,7 +3,7 @@ import { useSessionStore } from "../../store/sessionStore";
 import { postMessage, postQuestion, getRequirements } from "../../api/sessions";
 import type { Turn } from "../../api/sessions";
 
-const DEFAULT_COUNT = 3;
+const DEFAULT_COUNT = 1;
 const MIN_COUNT = 1;
 const MAX_COUNT = 5;
 
