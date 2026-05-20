@@ -20,6 +20,56 @@ def _make_extractor() -> RequirementExtractor:
     return RequirementExtractor(llm=LLMService())
 
 
+import re
+
+_REQ_STOPWORDS = {
+    "the", "a", "an",
+    "shall", "will", "can", "may", "should", "must", "could", "would",
+    "is", "are", "be", "been", "being",
+    "able", "to",
+    "user", "users", "system",
+}
+_DEDUP_THRESHOLD = 0.7
+
+
+def _tokenize_statement(s: str) -> set[str]:
+    """Lowercase + alphanumeric tokens, with requirement boilerplate (shall/system/etc.) removed."""
+    words = re.findall(r"[a-z0-9]+", s.lower())
+    return {w for w in words if w not in _REQ_STOPWORDS and len(w) > 1}
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+async def _dedup_requirement_docs(db, sid: str, stakeholder_turn_id: str, extracted: list[dict], now) -> list[dict]:
+    """Return only the requirement docs whose token-set isn't a near-duplicate of an existing one."""
+    existing_tokens: list[set[str]] = []
+    async for r in db.requirements.find({"session_id": sid}, {"statement": 1}):
+        existing_tokens.append(_tokenize_statement(r["statement"]))
+
+    docs: list[dict] = []
+    for r in extracted:
+        statement = r.get("statement")
+        rtype = r.get("type")
+        if not statement or not rtype:
+            continue
+        new_tokens = _tokenize_statement(statement)
+        if any(_jaccard(new_tokens, e) >= _DEDUP_THRESHOLD for e in existing_tokens):
+            continue
+        existing_tokens.append(new_tokens)
+        docs.append({
+            "session_id": sid,
+            "statement": statement,
+            "type": rtype,
+            "source_turn_id": stakeholder_turn_id,
+            "created_at": now,
+        })
+    return docs
+
+
 @router.post("/{sid}/turns", response_model=TurnResponse)
 async def post_turn(
     sid: str,
@@ -53,17 +103,7 @@ async def post_turn(
     except Exception:
         extracted = []
     if extracted:
-        docs = [
-            {
-                "session_id": sid,
-                "statement": r["statement"],
-                "type": r["type"],
-                "source_turn_id": stakeholder_turn_id,
-                "created_at": now,
-            }
-            for r in extracted
-            if r.get("statement") and r.get("type")
-        ]
+        docs = await _dedup_requirement_docs(db, sid, stakeholder_turn_id, extracted, now)
         if docs:
             await db.requirements.insert_many(docs)
 
@@ -133,17 +173,7 @@ async def post_message(
     except Exception:
         extracted = []
     if extracted:
-        docs = [
-            {
-                "session_id": sid,
-                "statement": r["statement"],
-                "type": r["type"],
-                "source_turn_id": stakeholder_turn_id,
-                "created_at": now,
-            }
-            for r in extracted
-            if r.get("statement") and r.get("type")
-        ]
+        docs = await _dedup_requirement_docs(db, sid, stakeholder_turn_id, extracted, now)
         if docs:
             await db.requirements.insert_many(docs)
 

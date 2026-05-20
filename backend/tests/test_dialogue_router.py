@@ -259,3 +259,36 @@ async def test_post_message_and_question_401_unauthed():
         r2 = await c.post("/sessions/507f1f77bcf86cd799439011/questions")
         assert r1.status_code == 401
         assert r2.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_requirement_dedup_across_messages(monkeypatch):
+    # Two stakeholder turns whose extractions produce overlapping statements.
+    # Turn 1 produces {A, B}; turn 2 produces {A (paraphrased), C}.
+    # After both, the DB should hold {A, B, C} — A only once.
+    extractors = iter([
+        FakeExtractor(items=[
+            {"statement": "Users shall be able to pay by card.", "type": "functional"},
+            {"statement": "P95 latency below 3s.", "type": "non_functional"},
+        ]),
+        FakeExtractor(items=[
+            {"statement": "users can pay by card", "type": "functional"},  # paraphrase of A
+            {"statement": "Audit log retained 90 days.", "type": "constraint"},
+        ]),
+    ])
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: next(extractors))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        token = await _signup_login(c)
+        h = {"Authorization": f"Bearer {token}"}
+        sid = (await c.post("/sessions", json={"project_title": "P"}, headers=h)).json()["id"]
+        await c.post(f"/sessions/{sid}/messages", json={"content": "first"}, headers=h)
+        await c.post(f"/sessions/{sid}/messages", json={"content": "second"}, headers=h)
+        from app.db.mongo import get_db
+        reqs = [d async for d in get_db().requirements.find({"session_id": sid})]
+        assert len(reqs) == 3, [r["statement"] for r in reqs]
+        statements_lower = {r["statement"].lower().rstrip(".") for r in reqs}
+        assert "audit log retained 90 days" in statements_lower
+        assert "p95 latency below 3s" in statements_lower
+        # the card-payment requirement appears once (under its original wording)
+        card_reqs = [r for r in reqs if "card" in r["statement"].lower()]
+        assert len(card_reqs) == 1
