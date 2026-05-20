@@ -1,11 +1,18 @@
 import { useEffect, useState } from "react";
-import { listSessions, createSession } from "../../api/sessions";
+import {
+  listSessions,
+  createSession,
+  archiveSession,
+  unarchiveSession,
+  deleteSession,
+} from "../../api/sessions";
 import { useSessionStore } from "../../store/sessionStore";
 
 export default function SessionList() {
   const { sessions, setSessions, activeId, setActive } = useSessionStore();
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
@@ -27,6 +34,45 @@ export default function SessionList() {
     setCreating(false);
     await refresh();
     setActive(s.id);
+  };
+
+  const onArchive = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setBusyId(id);
+    try {
+      await archiveSession(id);
+      if (activeId === id) setActive(null);
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const onUnarchive = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setBusyId(id);
+    try {
+      await unarchiveSession(id);
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const onDelete = async (id: string, projectTitle: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const ok = window.confirm(
+      `Permanently delete "${projectTitle}"?\n\nThis removes the session and all its turns and requirements. This cannot be undone.`
+    );
+    if (!ok) return;
+    setBusyId(id);
+    try {
+      await deleteSession(id);
+      if (activeId === id) setActive(null);
+      await refresh();
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const active = sessions.filter((s) => s.status === "active");
@@ -63,15 +109,23 @@ export default function SessionList() {
             {active.length === 0 && <li className="text-slate-400 italic">No active sessions</li>}
             {active.map((s) => (
               <li key={s.id}>
-                <button
+                <div
                   onClick={() => setActive(s.id)}
-                  className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 ${
+                  className={`group cursor-pointer px-2 py-1.5 rounded flex items-center gap-2 ${
                     activeId === s.id ? "bg-indigo-50 text-indigo-900" : "hover:bg-slate-100"
                   }`}
                 >
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  <span className="truncate">{s.project_title}</span>
-                </button>
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                  <span className="truncate flex-1">{s.project_title}</span>
+                  <button
+                    onClick={(e) => onArchive(s.id, e)}
+                    disabled={busyId === s.id}
+                    className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-slate-900 text-xs px-1.5 py-0.5 rounded hover:bg-white border border-transparent hover:border-slate-300 disabled:opacity-40"
+                    title="Archive session"
+                  >
+                    Archive
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -82,15 +136,31 @@ export default function SessionList() {
             <ul className="space-y-1">
               {archived.map((s) => (
                 <li key={s.id}>
-                  <button
+                  <div
                     onClick={() => setActive(s.id)}
-                    className={`w-full text-left px-2 py-1.5 rounded flex items-center gap-2 ${
+                    className={`group cursor-pointer px-2 py-1.5 rounded flex items-center gap-2 ${
                       activeId === s.id ? "bg-slate-100" : "hover:bg-slate-50"
                     } text-slate-500`}
                   >
-                    <span className="h-2 w-2 rounded-full bg-slate-300" />
-                    <span className="truncate">{s.project_title}</span>
-                  </button>
+                    <span className="h-2 w-2 rounded-full bg-slate-300 shrink-0" />
+                    <span className="truncate flex-1">{s.project_title}</span>
+                    <button
+                      onClick={(e) => onUnarchive(s.id, e)}
+                      disabled={busyId === s.id}
+                      className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-emerald-700 text-xs px-1.5 py-0.5 rounded hover:bg-white border border-transparent hover:border-slate-300 disabled:opacity-40"
+                      title="Restore to active"
+                    >
+                      Restore
+                    </button>
+                    <button
+                      onClick={(e) => onDelete(s.id, s.project_title, e)}
+                      disabled={busyId === s.id}
+                      className="opacity-0 group-hover:opacity-100 text-rose-600 hover:text-white hover:bg-rose-600 text-xs px-1.5 py-0.5 rounded border border-transparent hover:border-rose-600 disabled:opacity-40"
+                      title="Permanently delete"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

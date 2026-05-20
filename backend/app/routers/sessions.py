@@ -61,3 +61,38 @@ async def archive_session(sid: str, user_id: str = Depends(current_user_id_from_
     if not s:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
     return _to_out(s)
+
+
+@router.post("/{sid}/unarchive", response_model=SessionOut)
+async def unarchive_session(sid: str, user_id: str = Depends(current_user_id_from_token)):
+    db = get_db()
+    try:
+        oid = ObjectId(sid)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
+    s = await db.sessions.find_one_and_update(
+        {"_id": oid, "user_id": user_id},
+        {"$set": {"status": "active", "updated_at": datetime.utcnow()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not s:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+    return _to_out(s)
+
+
+@router.delete("/{sid}", status_code=204)
+async def delete_session(sid: str, user_id: str = Depends(current_user_id_from_token)):
+    db = get_db()
+    try:
+        oid = ObjectId(sid)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
+    s = await db.sessions.find_one({"_id": oid, "user_id": user_id})
+    if not s:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+    if s.get("status") != "archived":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "session must be archived before deletion")
+    await db.turns.delete_many({"session_id": sid})
+    await db.requirements.delete_many({"session_id": sid})
+    await db.sessions.delete_one({"_id": oid})
+    return None

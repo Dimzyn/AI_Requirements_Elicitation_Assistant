@@ -25,6 +25,10 @@ export const createSession = (project_title: string) =>
   api.post<Session>("/sessions", { project_title }).then((r) => r.data);
 export const archiveSession = (id: string) =>
   api.post<Session>(`/sessions/${id}/archive`).then((r) => r.data);
+export const unarchiveSession = (id: string) =>
+  api.post<Session>(`/sessions/${id}/unarchive`).then((r) => r.data);
+export const deleteSession = (id: string) =>
+  api.delete<void>(`/sessions/${id}`).then((r) => r.data);
 export const getTurns = (id: string) => api.get<Turn[]>(`/sessions/${id}/turns`).then((r) => r.data);
 export const postTurn = (id: string, content: string, count = 5) =>
   api.post<PostTurnResponse>(`/sessions/${id}/turns`, { content }, { params: { count } }).then((r) => r.data);
