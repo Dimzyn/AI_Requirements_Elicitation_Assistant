@@ -29,7 +29,7 @@ _REQ_STOPWORDS = {
     "able", "to",
     "user", "users", "system",
 }
-_DEDUP_THRESHOLD = 0.7
+_DEDUP_THRESHOLD = 0.55
 
 
 def _tokenize_statement(s: str) -> set[str]:

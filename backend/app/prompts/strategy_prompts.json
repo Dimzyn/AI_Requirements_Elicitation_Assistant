@@ -1,5 +1,7 @@
 {
   "concept": "Generate a follow-up question that elaborates on the most recently mentioned entity by the stakeholder. The question must reference the entity by name.",
   "related_concept": "Generate a follow-up question that broadens the discussion to a related but unmentioned aspect (e.g., security, performance, edge cases).",
-  "general": "Generate a short, open probe such as 'Why?' or 'Can you expand on that?' to elicit more depth."
+  "general": "Generate a short, open probe such as 'Why?' or 'Can you expand on that?' to elicit more depth.",
+  "nfr_probe": "Generate a question that asks the stakeholder for a MEASURABLE non-functional requirement attached to what they just described. Examples: maximum acceptable latency, uptime percentage, supported concurrent users, accessibility standard, retention period. The question must request a concrete threshold or number, not just adjectives like 'fast' or 'reliable'.",
+  "pivot": "Generate a question that pivots the conversation to an unexplored area of the system. Avoid the topic that has dominated the last few turns. Probe a previously unmentioned domain such as: user authentication / identity, permissions, notifications, data lifecycle (history, undo, deletion), error states, onboarding, search/discovery, or integrations with other systems."
 }
