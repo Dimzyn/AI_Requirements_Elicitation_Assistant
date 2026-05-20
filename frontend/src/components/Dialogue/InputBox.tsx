@@ -18,13 +18,24 @@ function describeError(err: unknown): string {
 }
 
 export default function InputBox() {
-  const { activeId, setStatus, appendTurns, setRequirements } = useSessionStore();
+  const { activeId, sessions, setStatus, appendTurns, setRequirements } = useSessionStore();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [count, setCount] = useState(DEFAULT_COUNT);
   const [error, setError] = useState<string | null>(null);
 
   if (!activeId) return null;
+
+  const activeSession = sessions.find((s) => s.id === activeId);
+  const isArchived = activeSession ? activeSession.status !== "active" : false;
+
+  if (isArchived) {
+    return (
+      <div className="border-t bg-slate-50 px-4 py-3 text-xs text-slate-600 text-center">
+        This session is archived. Restore it from the sidebar to continue the conversation.
+      </div>
+    );
+  }
 
   const onSend = async (e: React.FormEvent) => {
     e.preventDefault();
