@@ -12,6 +12,7 @@ function describeError(err: unknown): string {
   const status = e?.response?.status;
   const detail = e?.response?.data?.detail;
   if (status === 429) return "Gemini API rate limit reached. Wait a minute and try again.";
+  if (status === 503) return "Gemini is temporarily overloaded. Try again in a few seconds.";
   if (status === 401) return "You've been signed out. Refresh the page.";
   if (detail) return String(detail);
   return e?.message ?? "Something went wrong.";

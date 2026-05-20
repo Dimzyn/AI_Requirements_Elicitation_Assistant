@@ -6,7 +6,7 @@ from ..db.mongo import get_db
 from ..deps import current_user_id_from_token
 from ..schemas.dialogue import TurnIn, QuestionOut, TurnOut, TurnResponse, MessageResponse
 from ..services.question_generator import QuestionGenerator
-from ..services.llm_service import LLMService
+from ..services.llm_service import LLMService, UpstreamUnavailable
 from ..services.requirement_extractor import RequirementExtractor
 
 router = APIRouter(prefix="/sessions", tags=["dialogue"])
@@ -203,11 +203,14 @@ async def post_question(
         })
 
     gen = _make_generator()
-    q = await gen.next_question(
-        phase=session["phase"],
-        summary=session.get("summary") or "",
-        history=history,
-    )
+    try:
+        q = await gen.next_question(
+            phase=session["phase"],
+            summary=session.get("summary") or "",
+            history=history,
+        )
+    except UpstreamUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     agent_doc = {
         "session_id": sid,
         "role": "agent",
