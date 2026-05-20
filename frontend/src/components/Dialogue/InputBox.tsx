@@ -64,22 +64,29 @@ export default function InputBox() {
     getRequirements(activeId).then(setRequirements).catch(() => {});
 
     setStatus("thinking");
-    for (let i = 0; i < count; i++) {
-      try {
-        const q = await postQuestion(activeId);
-        const agentTurn: Turn = {
-          id: q.id,
+    const results = await Promise.allSettled(
+      Array.from({ length: count }, () => postQuestion(activeId))
+    );
+    const agentTurns: Turn[] = [];
+    const failures: unknown[] = [];
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        agentTurns.push({
+          id: r.value.id,
           role: "agent",
-          content: q.content,
-          strategy: q.strategy,
+          content: r.value.content,
+          strategy: r.value.strategy,
           created_at: new Date().toISOString(),
-        };
-        appendTurns([agentTurn]);
-      } catch (err) {
-        // partial failure: keep what we have, show why we stopped
-        setError(`Stopped after ${i} of ${count} questions: ${describeError(err)}`);
-        break;
+        });
+      } else {
+        failures.push(r.reason);
       }
+    }
+    if (agentTurns.length > 0) appendTurns(agentTurns);
+    if (failures.length > 0) {
+      setError(
+        `${failures.length} of ${count} questions failed: ${describeError(failures[0])}`
+      );
     }
 
     setStatus("idle");
