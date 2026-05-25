@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pymongo import ReturnDocument
 
 from ..db.mongo import get_db
-from ..deps import current_user_id_from_token
+from ..deps import current_user_id_from_token, current_user_doc
 from ..schemas.session import SessionCreate, SessionOut
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -16,6 +16,8 @@ def _to_out(doc: dict) -> SessionOut:
         project_title=doc["project_title"],
         status=doc["status"],
         phase=doc["phase"],
+        user_id=doc.get("user_id"),
+        created_at=doc["created_at"].isoformat() if doc.get("created_at") else None,
     )
 
 
@@ -38,10 +40,11 @@ async def create_session(body: SessionCreate, user_id: str = Depends(current_use
 
 
 @router.get("", response_model=list[SessionOut])
-async def list_sessions(user_id: str = Depends(current_user_id_from_token)):
+async def list_sessions(user: dict = Depends(current_user_doc)):
     db = get_db()
+    query = {} if user.get("role") == "requirements_engineer" else {"user_id": user["_id"]}
     out: list[SessionOut] = []
-    async for s in db.sessions.find({"user_id": user_id}):
+    async for s in db.sessions.find(query).sort("created_at", -1):
         out.append(_to_out(s))
     return out
 

@@ -235,9 +235,13 @@ async def list_turns(
     except Exception as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
 
-    session = await db.sessions.find_one({"_id": oid, "user_id": user_id})
+    session = await db.sessions.find_one({"_id": oid})
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+    if session.get("user_id") != user_id:
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+        if not user or user.get("role") != "requirements_engineer":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
 
     out: list[TurnOut] = []
     async for t in db.turns.find({"session_id": sid}).sort("created_at", 1):
