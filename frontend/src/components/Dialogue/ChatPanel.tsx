@@ -2,6 +2,14 @@ import { useEffect, useRef } from "react";
 import { useSessionStore } from "../../store/sessionStore";
 import StatusIndicator from "./StatusIndicator";
 
+const STRATEGY_DISPLAY: Record<string, { label: string; color: string }> = {
+  concept: { label: "Drilling deeper", color: "bg-blue-100 text-blue-700" },
+  related_concept: { label: "Broadening scope", color: "bg-purple-100 text-purple-700" },
+  general: { label: "Clarifying", color: "bg-slate-100 text-slate-600" },
+  nfr_probe: { label: "Probing NFRs", color: "bg-amber-100 text-amber-700" },
+  pivot: { label: "Pivoting topic", color: "bg-emerald-100 text-emerald-700" },
+};
+
 export default function ChatPanel() {
   const turns = useSessionStore((s) => s.turns);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -34,9 +42,13 @@ export default function ChatPanel() {
             }`}
           >
             {t.role === "agent" && t.strategy && (
-              <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">
-                {t.strategy.replace("_", " ")}
-              </div>
+              <span
+                className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded mb-1 ${
+                  STRATEGY_DISPLAY[t.strategy]?.color ?? "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {STRATEGY_DISPLAY[t.strategy]?.label ?? t.strategy}
+              </span>
             )}
             {t.content}
           </div>

@@ -27,11 +27,17 @@ class RequirementExtractor:
             "    'The system shall automatically suggest moving a time-blocked task to the "
             "next available block of free time if it is not checked off by the end of its "
             "allotted window.'\n\n"
+            "QUANTITY RULE:\n"
+            "- Extract at most 3 requirements per stakeholder reply. Pick only the most\n"
+            "  concrete, testable, and distinct capabilities. If the reply mentions 5 things\n"
+            "  but 2 are vague, emit only the 3 strong ones.\n"
+            "- Prefer FEWER high-quality requirements over MANY low-quality ones.\n\n"
             "CONTENT RULES:\n"
             "- One requirement = one user-visible capability or constraint. Combine multi-step "
             "interactions (drag-and-drop, search-and-filter, login-with-OTP) into a single line.\n"
             "- Deduplicate: if two phrasings describe the same capability, keep only one.\n"
-            "- Skip vague filler that isn't actionable ('be user-friendly' on its own).\n\n"
+            "- Skip vague filler that isn't actionable ('be user-friendly' on its own).\n"
+            "- Skip anything the stakeholder only IMPLIED but didn't explicitly state.\n\n"
             "CLASSIFY BY INTENT, NOT BY KEYWORDS:\n"
             "- functional: a behavior, capability, or feature the user can observe or trigger.\n"
             "    Examples: 'Sync task-complete state to Google Calendar.',\n"
@@ -70,4 +76,5 @@ class RequirementExtractor:
             f"Text:\n\"\"\"{stakeholder_text}\"\"\""
         )
         raw = await self.llm.generate(prompt, temperature=0.2, response_mime_type="application/json")
-        return json.loads(raw).get("requirements", [])
+        reqs = json.loads(raw).get("requirements", [])
+        return reqs[:3]
