@@ -255,7 +255,7 @@ function EditDrawer({
   onClose: () => void;
 }) {
   const [statement, setStatement] = useState(r.statement);
-  const [type, setType] = useState(r.type);
+  const [type, setType] = useState<string>(r.type);
   const [priority, setPriority] = useState(r.priority ?? "");
   const [status, setStatus] = useState(r.status ?? "pending");
   const [ac, setAc] = useState(r.acceptance_criteria ?? "");
