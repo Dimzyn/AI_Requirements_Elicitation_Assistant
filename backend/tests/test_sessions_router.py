@@ -24,6 +24,23 @@ async def test_create_session_returns_id_and_defaults():
 
 
 @pytest.mark.asyncio
+async def test_create_without_title_uses_placeholder_and_seeds_greeting():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        token = await _signup_login(c)
+        h = {"Authorization": f"Bearer {token}"}
+        r = await c.post("/sessions", json={}, headers=h)
+        assert r.status_code == 201, r.text
+        body = r.json()
+        assert body["project_title"] == "New conversation"
+        # the AI greeting is seeded as the first turn so the chat is never blank
+        turns = (await c.get(f"/sessions/{body['id']}/turns", headers=h)).json()
+        assert len(turns) == 1
+        assert turns[0]["role"] == "agent"
+        assert turns[0]["strategy"] is None
+        assert turns[0]["content"]
+
+
+@pytest.mark.asyncio
 async def test_list_only_returns_user_sessions():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         token_a = await _signup_login(c, "a@x.com")

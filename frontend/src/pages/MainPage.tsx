@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { useAuthStore } from "../store/authStore";
+import { useSessionStore } from "../store/sessionStore";
 import { useNavigate } from "react-router-dom";
 import SessionList from "../components/Sidebar/SessionList";
 import ChatPanel from "../components/Dialogue/ChatPanel";
@@ -8,6 +10,13 @@ import LiveRequirements from "../components/Requirements/LiveRequirements";
 export default function MainPage() {
   const clear = useAuthStore((s) => s.clear);
   const nav = useNavigate();
+
+  // Land the stakeholder straight in the draft welcome state so the AI greeting
+  // is visible immediately — no need to click "New Session" first.
+  useEffect(() => {
+    const { activeId, draft, setDraft } = useSessionStore.getState();
+    if (!activeId && !draft) setDraft(true);
+  }, []);
 
   return (
     <div className="h-screen grid grid-rows-[auto_1fr] bg-slate-50">

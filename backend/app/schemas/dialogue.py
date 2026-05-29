@@ -20,6 +20,7 @@ class TurnResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     stakeholder_turn_id: str
+    session_title: str | None = None
 
 
 class TurnOut(BaseModel):

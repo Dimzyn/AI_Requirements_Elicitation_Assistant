@@ -32,6 +32,21 @@ class FakeExtractor:
         return list(self.items)
 
 
+class FakeTitleGen:
+    def __init__(self, title="Calendar Task Sync"):
+        self.title = title
+        self.calls = 0
+
+    async def generate(self, text):
+        self.calls += 1
+        return self.title
+
+
+class BoomTitleGen:
+    async def generate(self, text):
+        raise RuntimeError("llm down")
+
+
 async def _signup_login(c, email="a@x.com"):
     await c.post("/auth/signup", json={"email": email, "password": "Passw0rd!", "real_name": "Ada"})
     r = await c.post("/auth/login", json={"email": email, "password": "Passw0rd!"})
@@ -79,8 +94,9 @@ async def test_history_grows_within_single_request(monkeypatch):
         sid = (await c.post("/sessions", json={"project_title": "P"}, headers=h)).json()["id"]
         r = await c.post(f"/sessions/{sid}/turns?count=3", json={"content": "hello"}, headers=h)
         assert r.status_code == 200, r.text
-        # first call sees [stakeholder], second sees [stakeholder, agent1], third sees [stakeholder, agent1, agent2]
-        assert fg.history_lengths == [1, 2, 3]
+        # history starts with the seeded greeting + stakeholder turn, then grows by one
+        # agent turn per generated question: [greeting, stakeholder] -> +agent1 -> +agent2
+        assert fg.history_lengths == [2, 3, 4]
 
 
 @pytest.mark.asyncio
@@ -124,16 +140,20 @@ async def test_get_turns_returns_history_in_order(monkeypatch):
         r = await c.get(f"/sessions/{sid}/turns", headers=h)
         assert r.status_code == 200, r.text
         body = r.json()
-        # 1 stakeholder + 5 agent turns (default count) = 6 total
+        # 1 seeded greeting + 1 stakeholder + 5 agent turns (default count) = 7 total
         assert isinstance(body, list)
-        assert len(body) == 6
-        # First turn is the stakeholder, with the original content
-        assert body[0]["role"] == "stakeholder"
-        assert body[0]["content"] == "I want a POS system."
-        # All agent turns carry a non-null strategy
+        assert len(body) == 7
+        # First turn is the seeded greeting: an agent turn with no strategy badge
+        assert body[0]["role"] == "agent"
+        assert body[0]["strategy"] is None
+        # The stakeholder turn carries the original content
+        stakeholders = [t for t in body if t["role"] == "stakeholder"]
+        assert len(stakeholders) == 1
+        assert stakeholders[0]["content"] == "I want a POS system."
+        # 1 greeting + 5 generated questions; only the questions carry a strategy
         agents = [t for t in body if t["role"] == "agent"]
-        assert len(agents) == 5
-        assert all(t.get("strategy") for t in agents)
+        assert len(agents) == 6
+        assert len([t for t in agents if t.get("strategy")]) == 5
         # Sorted by created_at ascending
         timestamps = [t["created_at"] for t in body]
         assert timestamps == sorted(timestamps)
@@ -198,15 +218,55 @@ async def test_post_message_persists_stakeholder_and_extracts_requirements(monke
         r = await c.post(f"/sessions/{sid}/messages", json={"content": "I want auth."}, headers=h)
         assert r.status_code == 200, r.text
         assert r.json()["stakeholder_turn_id"]
-        # turn was persisted
+        # session was created with an explicit title, so it is returned unchanged
+        assert r.json()["session_title"] == "P"
+        # turns persisted: seeded greeting first, then the stakeholder message
         turns = (await c.get(f"/sessions/{sid}/turns", headers=h)).json()
-        assert len(turns) == 1
-        assert turns[0]["role"] == "stakeholder"
-        assert turns[0]["content"] == "I want auth."
+        assert len(turns) == 2
+        assert turns[0]["role"] == "agent"
+        assert turns[1]["role"] == "stakeholder"
+        assert turns[1]["content"] == "I want auth."
         # requirement was extracted
         from app.db.mongo import get_db
         reqs = [d async for d in get_db().requirements.find({"session_id": sid})]
         assert len(reqs) == 1
+
+
+@pytest.mark.asyncio
+async def test_first_message_auto_names_placeholder_session(monkeypatch):
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    ftg = FakeTitleGen("Calendar Task Sync")
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: ftg)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        token = await _signup_login(c)
+        h = {"Authorization": f"Bearer {token}"}
+        # no title -> placeholder, auto_named False
+        sid = (await c.post("/sessions", json={}, headers=h)).json()["id"]
+        r = await c.post(f"/sessions/{sid}/messages", json={"content": "Sync my todos with Google Calendar."}, headers=h)
+        assert r.status_code == 200, r.text
+        assert r.json()["session_title"] == "Calendar Task Sync"
+        assert ftg.calls == 1
+        # the session is renamed in the listing
+        sessions = (await c.get("/sessions", headers=h)).json()
+        assert sessions[0]["project_title"] == "Calendar Task Sync"
+        # a second message does NOT rename again
+        r2 = await c.post(f"/sessions/{sid}/messages", json={"content": "Also remind me."}, headers=h)
+        assert r2.json()["session_title"] == "Calendar Task Sync"
+        assert ftg.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_title_generation_failure_keeps_placeholder(monkeypatch):
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: BoomTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        token = await _signup_login(c)
+        h = {"Authorization": f"Bearer {token}"}
+        sid = (await c.post("/sessions", json={}, headers=h)).json()["id"]
+        r = await c.post(f"/sessions/{sid}/messages", json={"content": "anything"}, headers=h)
+        # reply still succeeds; title falls back to the placeholder
+        assert r.status_code == 200, r.text
+        assert r.json()["session_title"] == "New conversation"
 
 
 @pytest.mark.asyncio
@@ -237,8 +297,8 @@ async def test_post_question_generates_one_from_history(monkeypatch):
         q = r.json()
         assert q["content"].startswith("Q")
         assert q["strategy"] == "concept"
-        # verify FakeGen saw a history with 1 stakeholder turn
-        assert fg.history_lengths == [1]
+        # verify FakeGen saw history with the seeded greeting + 1 stakeholder turn
+        assert fg.history_lengths == [2]
 
 
 @pytest.mark.asyncio

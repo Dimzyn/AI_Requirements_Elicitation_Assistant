@@ -13,6 +13,12 @@ export default function LiveRequirements() {
 
   useEffect(() => {
     if (!activeId) return;
+    // A session just created mid-send already has its turns set optimistically;
+    // skip this one load so we don't clobber them, then resume normal loading.
+    if (useSessionStore.getState().skipNextTurnLoad) {
+      useSessionStore.getState().setSkipNextTurnLoad(false);
+      return;
+    }
     (async () => {
       try {
         const [turns, reqs] = await Promise.all([

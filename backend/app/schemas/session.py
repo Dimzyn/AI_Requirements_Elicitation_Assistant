@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 
 class SessionCreate(BaseModel):
-    project_title: str
+    project_title: str | None = None
 
 
 class SessionOut(BaseModel):

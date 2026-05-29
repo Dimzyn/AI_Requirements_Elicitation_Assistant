@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useSessionStore } from "../../store/sessionStore";
+import { GREETING } from "../../constants";
 import StatusIndicator from "./StatusIndicator";
 
 const STRATEGY_DISPLAY: Record<string, { label: string; color: string }> = {
@@ -12,11 +13,25 @@ const STRATEGY_DISPLAY: Record<string, { label: string; color: string }> = {
 
 export default function ChatPanel() {
   const turns = useSessionStore((s) => s.turns);
+  const draft = useSessionStore((s) => s.draft);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns.length]);
+
+  // Draft welcome screen: show the AI greeting before any session exists.
+  if (turns.length === 0 && draft) {
+    return (
+      <div className="flex-1 overflow-y-auto p-6 space-y-3">
+        <div className="flex justify-start">
+          <div className="max-w-[75%] rounded-2xl px-4 py-2 text-sm whitespace-pre-wrap bg-white border text-slate-800">
+            {GREETING}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (turns.length === 0) {
     return (

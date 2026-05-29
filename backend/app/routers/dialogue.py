@@ -8,6 +8,7 @@ from ..schemas.dialogue import TurnIn, QuestionOut, TurnOut, TurnResponse, Messa
 from ..services.question_generator import QuestionGenerator
 from ..services.llm_service import LLMService, UpstreamUnavailable
 from ..services.requirement_extractor import RequirementExtractor
+from ..services.title_generator import TitleGenerator
 
 router = APIRouter(prefix="/sessions", tags=["dialogue"])
 
@@ -18,6 +19,30 @@ def _make_generator() -> QuestionGenerator:
 
 def _make_extractor() -> RequirementExtractor:
     return RequirementExtractor(llm=LLMService())
+
+
+def _make_title_generator() -> TitleGenerator:
+    return TitleGenerator(llm=LLMService())
+
+
+async def _maybe_auto_name(db, session: dict, oid, stakeholder_text: str) -> str:
+    """If the session is still unnamed, derive a title from the first message.
+
+    Returns the resolved title (new or existing). Best-effort: any failure leaves
+    the placeholder in place and never blocks the reply.
+    """
+    current = session.get("project_title")
+    if session.get("auto_named"):
+        return current
+    try:
+        title = await _make_title_generator().generate(stakeholder_text)
+        await db.sessions.update_one(
+            {"_id": oid},
+            {"$set": {"project_title": title, "auto_named": True, "updated_at": datetime.utcnow()}},
+        )
+        return title
+    except Exception:
+        return current
 
 
 import re
@@ -97,6 +122,8 @@ async def post_turn(
     res = await db.turns.insert_one(stakeholder_doc)
     stakeholder_turn_id = str(res.inserted_id)
 
+    await _maybe_auto_name(db, session, oid, body.content)
+
     extractor = _make_extractor()
     try:
         extracted = await extractor.extract(body.content)
@@ -167,6 +194,8 @@ async def post_message(
     res = await db.turns.insert_one(stakeholder_doc)
     stakeholder_turn_id = str(res.inserted_id)
 
+    session_title = await _maybe_auto_name(db, session, oid, body.content)
+
     extractor = _make_extractor()
     try:
         extracted = await extractor.extract(body.content)
@@ -177,7 +206,7 @@ async def post_message(
         if docs:
             await db.requirements.insert_many(docs)
 
-    return MessageResponse(stakeholder_turn_id=stakeholder_turn_id)
+    return MessageResponse(stakeholder_turn_id=stakeholder_turn_id, session_title=session_title)
 
 
 @router.post("/{sid}/questions", response_model=QuestionOut)

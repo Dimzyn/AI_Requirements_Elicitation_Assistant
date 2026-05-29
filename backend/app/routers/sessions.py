@@ -6,8 +6,14 @@ from pymongo import ReturnDocument
 from ..db.mongo import get_db
 from ..deps import current_user_id_from_token, current_user_doc
 from ..schemas.session import SessionCreate, SessionOut
+from ..services.title_generator import DEFAULT_TITLE
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+GREETING = (
+    "Hi! I'm here to help capture what you'd like to build. "
+    "What's the project or idea you have in mind?"
+)
 
 
 def _to_out(doc: dict) -> SessionOut:
@@ -25,17 +31,28 @@ def _to_out(doc: dict) -> SessionOut:
 async def create_session(body: SessionCreate, user_id: str = Depends(current_user_id_from_token)):
     db = get_db()
     now = datetime.utcnow()
+    explicit_title = (body.project_title or "").strip()
     doc = {
         "user_id": user_id,
-        "project_title": body.project_title,
+        "project_title": explicit_title or DEFAULT_TITLE,
         "status": "active",
         "phase": "exploration",
         "summary": None,
+        # When the title was auto-defaulted, the first stakeholder message renames it.
+        "auto_named": bool(explicit_title),
         "created_at": now,
         "updated_at": now,
     }
     res = await db.sessions.insert_one(doc)
-    doc["_id"] = res.inserted_id
+    sid = res.inserted_id
+    doc["_id"] = sid
+    # Seed the AI's opening greeting so the conversation never starts on a blank screen.
+    await db.turns.insert_one({
+        "session_id": str(sid),
+        "role": "agent",
+        "content": GREETING,
+        "created_at": now,
+    })
     return _to_out(doc)
 
 
