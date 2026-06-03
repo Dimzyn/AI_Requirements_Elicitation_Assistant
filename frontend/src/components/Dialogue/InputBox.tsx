@@ -34,7 +34,7 @@ export default function InputBox() {
 
   if (isArchived) {
     return (
-      <div className="border-t bg-slate-50 px-4 py-3 text-xs text-slate-600 text-center">
+      <div className="border-t border-border bg-surface-muted px-4 py-3 text-center text-xs text-muted">
         This session is archived. Restore it from the sidebar to continue the conversation.
       </div>
     );
@@ -137,15 +137,15 @@ export default function InputBox() {
   };
 
   return (
-    <form onSubmit={onSend} className="border-t bg-white p-4">
+    <form onSubmit={onSend} className="border-t border-border bg-surface p-3.5">
       {error && (
-        <div className="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded">
+        <div className="mb-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
           {error}
         </div>
       )}
-      <div className="flex gap-2">
+      <div className="flex items-end gap-2.5 rounded-xl border border-border bg-surface p-2.5 transition focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/15">
         <textarea
-          className="flex-1 border rounded p-2 text-sm resize-none"
+          className="h-10 flex-1 resize-none bg-transparent text-sm text-foreground outline-none placeholder:text-muted/70"
           rows={2}
           placeholder="Describe what you want…"
           value={text}
@@ -158,16 +158,22 @@ export default function InputBox() {
           }}
           disabled={busy}
         />
-        <div className="flex flex-col gap-1 items-stretch">
-          <label className="text-[10px] text-slate-500 text-right" title="Questions per turn">
-            Qs:&nbsp;
+        <div className="flex flex-col items-end gap-1.5">
+          <label
+            className="flex items-center gap-1 text-[11px] text-muted"
+            title="Questions per turn"
+          >
+            Qs
             <select
               value={count}
               onChange={(e) => setCount(Number(e.target.value))}
               disabled={busy}
-              className="border rounded text-xs px-1"
+              className="rounded-md border border-border bg-surface px-1 py-0.5 text-[11px] text-foreground"
             >
-              {Array.from({ length: MAX_COUNT - MIN_COUNT + 1 }, (_, i) => MIN_COUNT + i).map((n) => (
+              {Array.from(
+                { length: MAX_COUNT - MIN_COUNT + 1 },
+                (_, i) => MIN_COUNT + i
+              ).map((n) => (
                 <option key={n} value={n}>
                   {n}
                 </option>
@@ -177,7 +183,7 @@ export default function InputBox() {
           <button
             type="submit"
             disabled={busy || !text.trim()}
-            className="bg-indigo-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-indigo-700 disabled:bg-slate-300"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground shadow-sm transition hover:brightness-110 disabled:bg-accent/40"
           >
             Send
           </button>
