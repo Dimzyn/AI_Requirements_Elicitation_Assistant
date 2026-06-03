@@ -82,9 +82,13 @@ and logout. Page-specific title text passed as a prop.
 ## 4. Per-screen changes (behavior unchanged)
 
 ### 4.1 Auth — `LoginPage`, `SignupPage`
-Centered card on the app canvas, brand mark + product name above the form, labeled inputs
-with focus rings, styled error message, primary submit button, consistent link styling.
-Both pages share the same visual structure.
+Centered card on a subtly accent-tinted canvas, brand mark + product name above the form,
+labeled inputs with focus rings, styled error banner, primary submit button, consistent
+alt-action link. Both pages share the same visual structure.
+
+Fields are kept exactly as today (no new fields, no role selector — role is server-assigned):
+- **Login:** email, password.
+- **Signup:** email, password, **real name** (required), **phone** (optional).
 
 ### 4.2 Chat — `MainPage` + children
 - **`MainPage`** — adopt `AppHeader`; keep the `grid-rows-[auto_1fr]` +
