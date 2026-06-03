@@ -13,14 +13,18 @@ test("signup -> create session -> ask -> see probing question -> export", async 
 
   await expect(page.getByRole("heading", { name: /AI Probing Question Generator/i })).toBeVisible();
 
-  await page.getByRole("button", { name: "New Session" }).click();
-  await page.getByPlaceholder("Project title").fill("E2E Payments");
-  await page.getByRole("button", { name: "Create" }).click();
-
+  // Draft-on-login: the stakeholder lands straight in the draft welcome state with
+  // the AI greeting and input ready — no "New Session" click. Sending the first
+  // message creates and auto-names the session.
   await page.getByPlaceholder(/Describe what you want/).fill("I want a payment app for online retail.");
   await page.getByRole("button", { name: "Send" }).click();
 
-  await expect(page.locator("[data-role=agent]").first()).toBeVisible({ timeout: 45_000 });
+  // The greeting is itself an agent turn, so waiting for the *first* agent bubble
+  // would pass without Gemini ever responding. Wait for the second one — the
+  // actually-generated probing question — to prove the question loop ran.
+  await expect
+    .poll(() => page.locator("[data-role=agent]").count(), { timeout: 45_000 })
+    .toBeGreaterThanOrEqual(2);
 
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: ".md" }).click();
