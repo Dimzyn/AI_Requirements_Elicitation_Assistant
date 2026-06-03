@@ -17,6 +17,8 @@
     --danger: 225 29 72;
     --warning: 217 119 6;
     --info: 37 99 235;
+    --shadow-color: 15 23 42;
+    --shadow-strength: 1;
   }
 
   [data-theme="dark"] {
@@ -33,6 +35,8 @@
     --danger: 251 113 133;
     --warning: 245 158 11;
     --info: 96 165 250;
+    --shadow-color: 0 0 0;
+    --shadow-strength: 2.2;
   }
 
   html {

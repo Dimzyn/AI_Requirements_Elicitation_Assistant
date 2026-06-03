@@ -26,8 +26,8 @@ export default {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
-        card: '0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.04)',
-        lift: '0 10px 30px -12px rgb(15 23 42 / 0.25)',
+        card: '0 1px 2px rgb(var(--shadow-color) / calc(0.06 * var(--shadow-strength))), 0 1px 3px rgb(var(--shadow-color) / calc(0.04 * var(--shadow-strength)))',
+        lift: '0 10px 30px -12px rgb(var(--shadow-color) / calc(0.25 * var(--shadow-strength)))',
       },
     },
   },
