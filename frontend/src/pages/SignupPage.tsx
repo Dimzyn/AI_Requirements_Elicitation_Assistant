@@ -24,8 +24,9 @@ export default function SignupPage() {
       });
       setToken(token);
       nav("/");
-    } catch (e: any) {
-      setErr(e?.response?.data?.detail ?? "Sign up failed");
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setErr(detail ?? "Sign up failed");
     }
   };
 

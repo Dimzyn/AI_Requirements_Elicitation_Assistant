@@ -17,8 +17,9 @@ export default function LoginPage() {
       const token = await login({ email, password });
       setToken(token);
       nav("/");
-    } catch (e: any) {
-      setErr(e?.response?.data?.detail ?? "Login failed");
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setErr(detail ?? "Login failed");
     }
   };
 

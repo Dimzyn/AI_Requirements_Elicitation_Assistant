@@ -6,13 +6,11 @@ import { getMe } from "../../api/auth";
 export default function ProtectedRoute() {
   const token = useAuthStore((s) => s.token);
   const setRole = useAuthStore((s) => s.setRole);
-  const [loading, setLoading] = useState(true);
+  // Only the token-present path needs to fetch /me, so start "loading" only then.
+  const [loading, setLoading] = useState(Boolean(token));
 
   useEffect(() => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+    if (!token) return;
     getMe()
       .then((p) => setRole(p.role))
       .catch(() => useAuthStore.getState().clear())

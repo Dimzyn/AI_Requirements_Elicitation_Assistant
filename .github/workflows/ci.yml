@@ -47,3 +47,6 @@ jobs:
       - name: Lint
         working-directory: frontend
         run: npm run lint
+      - name: Unit tests
+        working-directory: frontend
+        run: npm test
