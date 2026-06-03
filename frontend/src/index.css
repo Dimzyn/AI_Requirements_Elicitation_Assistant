@@ -1,3 +1,46 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 248 250 252;
+    --surface: 255 255 255;
+    --surface-muted: 248 250 252;
+    --border: 226 232 240;
+    --foreground: 15 23 42;
+    --muted: 100 116 139;
+    --accent: 79 70 229;
+    --accent-foreground: 255 255 255;
+    --ring: 79 70 229;
+    --success: 16 185 129;
+    --danger: 225 29 72;
+    --warning: 217 119 6;
+    --info: 37 99 235;
+  }
+
+  [data-theme="dark"] {
+    --background: 9 11 16;
+    --surface: 17 20 27;
+    --surface-muted: 22 26 35;
+    --border: 38 44 56;
+    --foreground: 226 232 240;
+    --muted: 148 163 184;
+    --accent: 99 102 241;
+    --accent-foreground: 255 255 255;
+    --ring: 129 140 248;
+    --success: 52 211 153;
+    --danger: 251 113 133;
+    --warning: 245 158 11;
+    --info: 96 165 250;
+  }
+
+  html {
+    font-family: "Inter", system-ui, sans-serif;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+  }
+}
