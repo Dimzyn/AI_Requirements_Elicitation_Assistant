@@ -2,13 +2,14 @@ import { useEffect, useRef } from "react";
 import { useSessionStore } from "../../store/sessionStore";
 import { GREETING } from "../../constants";
 import StatusIndicator from "./StatusIndicator";
+import Badge, { type BadgeTone } from "../ui/Badge";
 
-const STRATEGY_DISPLAY: Record<string, { label: string; color: string }> = {
-  concept: { label: "Drilling deeper", color: "bg-blue-100 text-blue-700" },
-  related_concept: { label: "Broadening scope", color: "bg-purple-100 text-purple-700" },
-  general: { label: "Clarifying", color: "bg-slate-100 text-slate-600" },
-  nfr_probe: { label: "Probing NFRs", color: "bg-amber-100 text-amber-700" },
-  pivot: { label: "Pivoting topic", color: "bg-emerald-100 text-emerald-700" },
+const STRATEGY_DISPLAY: Record<string, { label: string; tone: BadgeTone }> = {
+  concept: { label: "Drilling deeper", tone: "info" },
+  related_concept: { label: "Broadening scope", tone: "accent" },
+  general: { label: "Clarifying", tone: "neutral" },
+  nfr_probe: { label: "Probing NFRs", tone: "warning" },
+  pivot: { label: "Pivoting topic", tone: "success" },
 };
 
 export default function ChatPanel() {
@@ -23,9 +24,9 @@ export default function ChatPanel() {
   // Draft welcome screen: show the AI greeting before any session exists.
   if (turns.length === 0 && draft) {
     return (
-      <div className="flex-1 overflow-y-auto p-6 space-y-3">
+      <div className="flex-1 space-y-3 overflow-y-auto p-6">
         <div className="flex justify-start">
-          <div className="max-w-[75%] rounded-2xl px-4 py-2 text-sm whitespace-pre-wrap bg-white border text-slate-800">
+          <div className="max-w-[74%] whitespace-pre-wrap rounded-2xl rounded-bl-sm border border-border bg-surface px-4 py-2.5 text-sm text-foreground shadow-card">
             {GREETING}
           </div>
         </div>
@@ -35,14 +36,14 @@ export default function ChatPanel() {
 
   if (turns.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-slate-400 text-sm">
+      <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted">
         Describe what you want to build to start the interview.
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-3">
+    <div className="flex-1 space-y-3.5 overflow-y-auto p-6">
       {turns.map((t) => (
         <div
           key={t.id}
@@ -50,26 +51,29 @@ export default function ChatPanel() {
           className={`flex ${t.role === "stakeholder" ? "justify-end" : "justify-start"}`}
         >
           <div
-            className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm whitespace-pre-wrap ${
+            className={`max-w-[74%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm shadow-card ${
               t.role === "stakeholder"
-                ? "bg-indigo-600 text-white"
-                : "bg-white border text-slate-800"
+                ? "rounded-br-sm bg-accent text-accent-foreground"
+                : "rounded-bl-sm border border-border bg-surface text-foreground"
             }`}
           >
             {t.role === "agent" && t.strategy && (
-              <span
-                className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded mb-1 ${
-                  STRATEGY_DISPLAY[t.strategy]?.color ?? "bg-slate-100 text-slate-600"
-                }`}
-              >
-                {STRATEGY_DISPLAY[t.strategy]?.label ?? t.strategy}
-              </span>
+              <div>
+                <Badge
+                  tone={STRATEGY_DISPLAY[t.strategy]?.tone ?? "neutral"}
+                  className="mb-1.5"
+                >
+                  {STRATEGY_DISPLAY[t.strategy]?.label ?? t.strategy}
+                </Badge>
+              </div>
             )}
             {t.content}
           </div>
         </div>
       ))}
-      <div className="pt-2"><StatusIndicator /></div>
+      <div className="pt-2">
+        <StatusIndicator />
+      </div>
       <div ref={bottomRef} />
     </div>
   );
