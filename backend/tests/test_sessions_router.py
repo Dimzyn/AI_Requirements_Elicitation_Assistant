@@ -99,7 +99,7 @@ async def test_delete_requires_archived_status():
 @pytest.mark.asyncio
 async def test_delete_cascades_turns_and_requirements():
     from app.db.mongo import get_db
-    from datetime import datetime
+    from datetime import datetime, timezone
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         token = await _signup_login(c)
         h = {"Authorization": f"Bearer {token}"}
@@ -107,12 +107,12 @@ async def test_delete_cascades_turns_and_requirements():
         # seed turns + requirements directly
         db = get_db()
         await db.turns.insert_many([
-            {"session_id": sid, "role": "stakeholder", "content": "x", "created_at": datetime.utcnow()},
-            {"session_id": sid, "role": "agent", "content": "y", "strategy": "concept", "created_at": datetime.utcnow()},
+            {"session_id": sid, "role": "stakeholder", "content": "x", "created_at": datetime.now(timezone.utc)},
+            {"session_id": sid, "role": "agent", "content": "y", "strategy": "concept", "created_at": datetime.now(timezone.utc)},
         ])
         await db.requirements.insert_one({
             "session_id": sid, "statement": "Do something.", "type": "functional",
-            "source_turn_id": "anything", "created_at": datetime.utcnow(),
+            "source_turn_id": "anything", "created_at": datetime.now(timezone.utc),
         })
         # archive first, then delete
         await c.post(f"/sessions/{sid}/archive", headers=h)

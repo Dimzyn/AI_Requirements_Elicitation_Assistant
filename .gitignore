@@ -15,6 +15,13 @@ node_modules/
 dist/
 .vite/
 
+# Test artifacts
+test-results/
+playwright-report/
+
+# Tooling
+.codegraph/
+
 # IDE
 .idea/
 .vscode/

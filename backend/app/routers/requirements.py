@@ -1,5 +1,5 @@
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pymongo import ReturnDocument
 
@@ -101,7 +101,7 @@ async def patch_requirement(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "no fields to update")
 
     updates["edited_by"] = user["_id"]
-    updates["edited_at"] = datetime.utcnow()
+    updates["edited_at"] = datetime.now(timezone.utc)
 
     doc = await db.requirements.find_one_and_update(
         {"_id": oid},

@@ -1,5 +1,5 @@
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from pymongo import ReturnDocument
 
@@ -30,7 +30,7 @@ def _to_out(doc: dict) -> SessionOut:
 @router.post("", status_code=201, response_model=SessionOut)
 async def create_session(body: SessionCreate, user_id: str = Depends(current_user_id_from_token)):
     db = get_db()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     explicit_title = (body.project_title or "").strip()
     doc = {
         "user_id": user_id,
@@ -75,7 +75,7 @@ async def archive_session(sid: str, user_id: str = Depends(current_user_id_from_
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
     s = await db.sessions.find_one_and_update(
         {"_id": oid, "user_id": user_id},
-        {"$set": {"status": "archived", "updated_at": datetime.utcnow()}},
+        {"$set": {"status": "archived", "updated_at": datetime.now(timezone.utc)}},
         return_document=ReturnDocument.AFTER,
     )
     if not s:
@@ -92,7 +92,7 @@ async def unarchive_session(sid: str, user_id: str = Depends(current_user_id_fro
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
     s = await db.sessions.find_one_and_update(
         {"_id": oid, "user_id": user_id},
-        {"$set": {"status": "active", "updated_at": datetime.utcnow()}},
+        {"$set": {"status": "active", "updated_at": datetime.now(timezone.utc)}},
         return_document=ReturnDocument.AFTER,
     )
     if not s:

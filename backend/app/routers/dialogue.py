@@ -1,5 +1,5 @@
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..db.mongo import get_db
@@ -38,7 +38,7 @@ async def _maybe_auto_name(db, session: dict, oid, stakeholder_text: str) -> str
         title = await _make_title_generator().generate(stakeholder_text)
         await db.sessions.update_one(
             {"_id": oid},
-            {"$set": {"project_title": title, "auto_named": True, "updated_at": datetime.utcnow()}},
+            {"$set": {"project_title": title, "auto_named": True, "updated_at": datetime.now(timezone.utc)}},
         )
         return title
     except Exception:
@@ -112,7 +112,7 @@ async def post_turn(
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     stakeholder_doc = {
         "session_id": sid,
         "role": "stakeholder",
@@ -158,7 +158,7 @@ async def post_turn(
             "strategy": q.strategy,
             "validator_attempts": q.attempts,
             "validator_verdict": "valid" if q.valid else "invalid",
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
         }
         agent_res = await db.turns.insert_one(agent_doc)
         questions_out.append(
@@ -184,7 +184,7 @@ async def post_message(
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     stakeholder_doc = {
         "session_id": sid,
         "role": "stakeholder",
@@ -247,7 +247,7 @@ async def post_question(
         "strategy": q.strategy,
         "validator_attempts": q.attempts,
         "validator_verdict": "valid" if q.valid else "invalid",
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(timezone.utc),
     }
     res = await db.turns.insert_one(agent_doc)
     return QuestionOut(id=str(res.inserted_id), content=q.question, strategy=q.strategy)
