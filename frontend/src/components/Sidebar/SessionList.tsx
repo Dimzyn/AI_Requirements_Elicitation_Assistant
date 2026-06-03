@@ -66,35 +66,41 @@ export default function SessionList() {
   const archived = sessions.filter((s) => s.status !== "active");
 
   return (
-    <aside className="border-r bg-white flex flex-col">
-      <div className="p-4 border-b">
+    <aside className="flex flex-col border-r border-border bg-surface">
+      <div className="border-b border-border p-3.5">
         <button
           onClick={() => setDraft(true)}
           disabled={draft && !activeId}
-          className="w-full bg-indigo-600 text-white rounded p-2 text-sm font-medium hover:bg-indigo-700 disabled:bg-indigo-300"
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent py-2 text-sm font-medium text-accent-foreground shadow-sm transition hover:brightness-110 disabled:bg-accent/40"
         >
-          New Session
+          <span className="text-base leading-none">＋</span> New Session
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto p-3 space-y-4 text-sm">
+      <div className="flex-1 space-y-5 overflow-y-auto p-3 text-sm">
         <div>
-          <h3 className="text-xs uppercase tracking-wider text-slate-500 mb-2">Active</h3>
-          <ul className="space-y-1">
-            {active.length === 0 && <li className="text-slate-400 italic">No active sessions</li>}
+          <h3 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
+            Active
+          </h3>
+          <ul className="space-y-0.5">
+            {active.length === 0 && (
+              <li className="px-2 italic text-muted">No active sessions</li>
+            )}
             {active.map((s) => (
               <li key={s.id}>
                 <div
                   onClick={() => setActive(s.id)}
-                  className={`group cursor-pointer px-2 py-1.5 rounded flex items-center gap-2 ${
-                    activeId === s.id ? "bg-indigo-50 text-indigo-900" : "hover:bg-slate-100"
+                  className={`group relative flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 transition ${
+                    activeId === s.id
+                      ? "bg-accent/10 text-accent before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-full before:bg-accent"
+                      : "hover:bg-surface-muted"
                   }`}
                 >
-                  <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-                  <span className="truncate flex-1">{s.project_title}</span>
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
+                  <span className="flex-1 truncate font-medium">{s.project_title}</span>
                   <button
                     onClick={(e) => onArchive(s.id, e)}
                     disabled={busyId === s.id}
-                    className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-slate-900 text-xs px-1.5 py-0.5 rounded hover:bg-white border border-transparent hover:border-slate-300 disabled:opacity-40"
+                    className="rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted opacity-0 transition hover:bg-surface hover:text-foreground group-hover:opacity-100 disabled:opacity-40"
                     title="Archive session"
                   >
                     Archive
@@ -106,22 +112,24 @@ export default function SessionList() {
         </div>
         {archived.length > 0 && (
           <div>
-            <h3 className="text-xs uppercase tracking-wider text-slate-500 mb-2">Archived</h3>
-            <ul className="space-y-1">
+            <h3 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
+              Archived
+            </h3>
+            <ul className="space-y-0.5">
               {archived.map((s) => (
                 <li key={s.id}>
                   <div
                     onClick={() => setActive(s.id)}
-                    className={`group cursor-pointer px-2 py-1.5 rounded flex items-center gap-2 ${
-                      activeId === s.id ? "bg-slate-100" : "hover:bg-slate-50"
-                    } text-slate-500`}
+                    className={`group flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-muted transition ${
+                      activeId === s.id ? "bg-surface-muted" : "hover:bg-surface-muted"
+                    }`}
                   >
-                    <span className="h-2 w-2 rounded-full bg-slate-300 shrink-0" />
-                    <span className="truncate flex-1">{s.project_title}</span>
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-border" />
+                    <span className="flex-1 truncate">{s.project_title}</span>
                     <button
                       onClick={(e) => onUnarchive(s.id, e)}
                       disabled={busyId === s.id}
-                      className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-emerald-700 text-xs px-1.5 py-0.5 rounded hover:bg-white border border-transparent hover:border-slate-300 disabled:opacity-40"
+                      className="rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted opacity-0 transition hover:bg-surface hover:text-success group-hover:opacity-100 disabled:opacity-40"
                       title="Restore to active"
                     >
                       Restore
@@ -129,7 +137,7 @@ export default function SessionList() {
                     <button
                       onClick={(e) => onDelete(s.id, s.project_title, e)}
                       disabled={busyId === s.id}
-                      className="opacity-0 group-hover:opacity-100 text-rose-600 hover:text-white hover:bg-rose-600 text-xs px-1.5 py-0.5 rounded border border-transparent hover:border-rose-600 disabled:opacity-40"
+                      className="rounded-md border border-transparent px-1.5 py-0.5 text-[10px] text-danger opacity-0 transition hover:bg-danger hover:text-white group-hover:opacity-100 disabled:opacity-40"
                       title="Permanently delete"
                     >
                       Delete
