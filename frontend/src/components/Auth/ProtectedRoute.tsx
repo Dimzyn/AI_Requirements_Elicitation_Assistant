@@ -20,7 +20,7 @@ export default function ProtectedRoute() {
   if (!token) return <Navigate to="/login" replace />;
   if (loading)
     return (
-      <div className="h-screen flex items-center justify-center text-slate-500">
+      <div className="h-screen flex items-center justify-center bg-background text-muted">
         Loading...
       </div>
     );
