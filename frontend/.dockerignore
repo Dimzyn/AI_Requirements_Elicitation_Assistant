@@ -1,0 +1,13 @@
+node_modules
+dist
+.vite
+npm-debug.log*
+.git
+.gitignore
+Dockerfile
+.dockerignore
+*.local
+.env
+.env.*
+playwright-report
+test-results
