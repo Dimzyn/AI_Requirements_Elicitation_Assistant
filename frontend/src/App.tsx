@@ -2,7 +2,15 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import MainPage from "./pages/MainPage";
+import SpecPage from "./pages/SpecPage";
 import ProtectedRoute from "./components/Auth/ProtectedRoute";
+import { useAuthStore } from "./store/authStore";
+
+function RoleRedirect() {
+  const role = useAuthStore((s) => s.role);
+  if (role === "requirements_engineer") return <Navigate to="/spec" replace />;
+  return <Navigate to="/chat" replace />;
+}
 
 export default function App() {
   return (
@@ -11,7 +19,9 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route element={<ProtectedRoute />}>
-          <Route path="/" element={<MainPage />} />
+          <Route path="/" element={<RoleRedirect />} />
+          <Route path="/chat" element={<MainPage />} />
+          <Route path="/spec" element={<SpecPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -78,13 +78,13 @@ async def test_export_401_when_unauthenticated():
 
 @pytest.mark.asyncio
 async def test_get_requirements_returns_seeded_items():
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         token = await _signup_login(c)
         h = {"Authorization": f"Bearer {token}"}
         sid = (await c.post("/sessions", json={"project_title": "POS"}, headers=h)).json()["id"]
         from app.db.mongo import get_db
-        base = datetime.utcnow()
+        base = datetime.now(timezone.utc)
         await get_db().requirements.insert_many([
             {
                 "session_id": sid,

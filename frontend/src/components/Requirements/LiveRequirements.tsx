@@ -3,9 +3,9 @@ import { useSessionStore } from "../../store/sessionStore";
 import { getRequirements, getTurns, exportSession } from "../../api/sessions";
 
 const TYPE_LABEL: Record<string, string> = {
-  functional: "Functional",
-  non_functional: "Non-Functional",
-  constraint: "Constraints",
+  functional: "⚙ Functional",
+  non_functional: "◷ Non-Functional",
+  constraint: "⊘ Constraints",
 };
 
 export default function LiveRequirements() {
@@ -13,6 +13,12 @@ export default function LiveRequirements() {
 
   useEffect(() => {
     if (!activeId) return;
+    // A session just created mid-send already has its turns set optimistically;
+    // skip this one load so we don't clobber them, then resume normal loading.
+    if (useSessionStore.getState().skipNextTurnLoad) {
+      useSessionStore.getState().setSkipNextTurnLoad(false);
+      return;
+    }
     (async () => {
       try {
         const [turns, reqs] = await Promise.all([
@@ -48,21 +54,21 @@ export default function LiveRequirements() {
   };
 
   return (
-    <aside className="border-l bg-white p-4 overflow-y-auto flex flex-col">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="font-semibold">Live Requirements</h2>
+    <aside className="flex flex-col gap-3.5 overflow-y-auto border-l border-border bg-surface p-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-foreground">Live Requirements</h2>
         {activeId && (
-          <div className="flex gap-1">
+          <div className="flex gap-1.5">
             <button
               onClick={() => onExport("md")}
-              className="text-xs px-2 py-1 border rounded hover:bg-slate-100"
+              className="rounded-md border border-border px-2 py-1 text-[10px] text-muted transition hover:bg-surface-muted hover:text-foreground"
               title="Download as Markdown"
             >
               .md
             </button>
             <button
               onClick={() => onExport("txt")}
-              className="text-xs px-2 py-1 border rounded hover:bg-slate-100"
+              className="rounded-md border border-border px-2 py-1 text-[10px] text-muted transition hover:bg-surface-muted hover:text-foreground"
               title="Download as plain text"
             >
               .txt
@@ -74,13 +80,21 @@ export default function LiveRequirements() {
         const items = grouped[k] || [];
         if (items.length === 0) return null;
         return (
-          <div key={k} className="mb-4">
-            <h3 className="text-xs uppercase tracking-wider text-slate-500 mb-2">
-              {TYPE_LABEL[k]}
-            </h3>
-            <ul className="space-y-1 text-sm">
+          <div key={k} className="overflow-hidden rounded-xl border border-border bg-surface">
+            <div className="flex items-center justify-between border-b border-border bg-surface-muted px-3 py-2.5">
+              <span className="text-[11px] font-semibold text-foreground">
+                {TYPE_LABEL[k]}
+              </span>
+              <span className="rounded-full bg-accent/12 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                {items.length}
+              </span>
+            </div>
+            <ul>
               {items.map((r) => (
-                <li key={r.id} className="border-l-2 border-indigo-400 pl-2">
+                <li
+                  key={r.id}
+                  className="border-b border-border px-3 py-2.5 text-sm text-foreground last:border-b-0"
+                >
                   {r.statement}
                 </li>
               ))}
@@ -89,7 +103,7 @@ export default function LiveRequirements() {
         );
       })}
       {requirements.length === 0 && (
-        <p className="text-slate-400 text-sm italic">No requirements extracted yet.</p>
+        <p className="text-sm italic text-muted">No requirements extracted yet.</p>
       )}
     </aside>
   );

@@ -22,3 +22,4 @@ async def init_indexes() -> None:
     await db.sessions.create_index([("user_id", 1), ("status", 1)])
     await db.turns.create_index([("session_id", 1), ("created_at", 1)])
     await db.requirements.create_index("session_id")
+    await db.requirements.create_index("status")
