@@ -121,6 +121,9 @@ async def post_turn(
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
 
+    if session["status"] == "completed":
+        raise HTTPException(status.HTTP_409_CONFLICT, "session has ended")
+
     summary = await _build_summary(db, session)
 
     now = datetime.now(timezone.utc)
@@ -195,6 +198,9 @@ async def post_message(
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
 
+    if session["status"] == "completed":
+        raise HTTPException(status.HTTP_409_CONFLICT, "session has ended")
+
     now = datetime.now(timezone.utc)
     stakeholder_doc = {
         "session_id": sid,
@@ -234,6 +240,9 @@ async def post_question(
     session = await db.sessions.find_one({"_id": oid, "stakeholder_id": user_id})
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+
+    if session["status"] == "completed":
+        raise HTTPException(status.HTTP_409_CONFLICT, "session has ended")
 
     summary = await _build_summary(db, session)
 

@@ -340,6 +340,36 @@ async def test_re_cannot_post_turn():
 
 
 @pytest.mark.asyncio
+async def test_completed_session_rejects_messages(monkeypatch):
+    """After RE marks session complete, stakeholder POST /messages returns 409."""
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        # RE marks session complete
+        complete_r = await c.post(f"/sessions/{sid}/complete", headers=reh)
+        assert complete_r.status_code == 200, complete_r.text
+        assert complete_r.json()["status"] == "completed"
+        # Stakeholder tries to post a message after session is completed
+        r = await c.post(f"/sessions/{sid}/messages", json={"content": "still trying"}, headers=sh)
+        assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
+async def test_completed_session_rejects_turns(monkeypatch):
+    """After RE marks session complete, stakeholder POST /turns returns 409."""
+    monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: FakeGen())
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        complete_r = await c.post(f"/sessions/{sid}/complete", headers=reh)
+        assert complete_r.status_code == 200, complete_r.text
+        r = await c.post(f"/sessions/{sid}/turns", json={"content": "still trying"}, headers=sh)
+        assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
 async def test_requirement_dedup_across_messages(monkeypatch):
     # Two stakeholder turns whose extractions produce overlapping statements.
     # Turn 1 produces {A, B}; turn 2 produces {A (paraphrased), C}.
