@@ -1,7 +1,9 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
+from app.db.mongo import get_db
 from app.services.export_service import compile_markdown
+from datetime import datetime, timedelta, timezone
 
 
 def test_compile_markdown_groups_by_type():
@@ -23,24 +25,42 @@ def test_compile_markdown_skips_empty_buckets():
     assert "## Functional Requirements" not in md
 
 
-async def _signup_login(c, email="a@x.com"):
-    await c.post("/auth/signup", json={"email": email, "password": "Passw0rd!", "real_name": "Ada"})
-    r = await c.post("/auth/login", json={"email": email, "password": "Passw0rd!"})
-    return r.json()["access_token"]
+async def _re_project_and_session(c, project_title="POS"):
+    """Create an RE, project, invite + accept stakeholder, open a session.
+    Returns (reh, sh, pid, sid) headers and IDs."""
+    await c.post("/auth/signup", json={"email": "re_exp@x.com", "password": "Passw0rd!", "real_name": "RE"})
+    await get_db().users.update_one({"email": "re_exp@x.com"}, {"$set": {"role": "requirements_engineer"}})
+    re_tok = (await c.post("/auth/login", json={"email": "re_exp@x.com", "password": "Passw0rd!"})).json()["access_token"]
+    reh = {"Authorization": f"Bearer {re_tok}"}
+    pid = (await c.post("/projects", json={"title": project_title}, headers=reh)).json()["id"]
+    token = (await c.post(f"/projects/{pid}/invitations", json={"email": "sh_exp@x.com"}, headers=reh)).json()["token"]
+    s_tok = (await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "S"})).json()["access_token"]
+    sh = {"Authorization": f"Bearer {s_tok}"}
+    sid = (await c.post(f"/projects/{pid}/session", headers=sh)).json()["id"]
+    return reh, sh, pid, sid
 
 
 @pytest.mark.asyncio
-async def test_export_returns_markdown_for_owner():
+async def test_export_returns_markdown_for_stakeholder():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token = await _signup_login(c)
-        h = {"Authorization": f"Bearer {token}"}
-        sid = (await c.post("/sessions", json={"project_title": "POS"}, headers=h)).json()["id"]
-        # seed requirements directly via the test DB
-        from app.db.mongo import get_db
+        reh, sh, pid, sid = await _re_project_and_session(c, project_title="POS")
         await get_db().requirements.insert_one({
             "session_id": sid, "statement": "Cashiers can ring up sales.", "type": "functional"
         })
-        r = await c.get(f"/sessions/{sid}/export", headers=h)
+        r = await c.get(f"/sessions/{sid}/export", headers=sh)
+        assert r.status_code == 200, r.text
+        assert "# Requirements: POS" in r.text
+        assert "Cashiers can ring up sales." in r.text
+
+
+@pytest.mark.asyncio
+async def test_export_returns_markdown_for_re():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _re_project_and_session(c, project_title="POS")
+        await get_db().requirements.insert_one({
+            "session_id": sid, "statement": "Cashiers can ring up sales.", "type": "functional"
+        })
+        r = await c.get(f"/sessions/{sid}/export", headers=reh)
         assert r.status_code == 200, r.text
         assert "# Requirements: POS" in r.text
         assert "Cashiers can ring up sales." in r.text
@@ -49,10 +69,8 @@ async def test_export_returns_markdown_for_owner():
 @pytest.mark.asyncio
 async def test_export_txt_strips_markdown_hashes():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token = await _signup_login(c)
-        h = {"Authorization": f"Bearer {token}"}
-        sid = (await c.post("/sessions", json={"project_title": "POS"}, headers=h)).json()["id"]
-        r = await c.get(f"/sessions/{sid}/export?format=txt", headers=h)
+        reh, sh, pid, sid = await _re_project_and_session(c)
+        r = await c.get(f"/sessions/{sid}/export?format=txt", headers=sh)
         assert r.status_code == 200
         assert "#" not in r.text
 
@@ -60,12 +78,10 @@ async def test_export_txt_strips_markdown_hashes():
 @pytest.mark.asyncio
 async def test_export_404_for_other_user():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token_a = await _signup_login(c, "a@x.com")
-        token_b = await _signup_login(c, "b@x.com")
-        ha = {"Authorization": f"Bearer {token_a}"}
-        hb = {"Authorization": f"Bearer {token_b}"}
-        sid_a = (await c.post("/sessions", json={"project_title": "A"}, headers=ha)).json()["id"]
-        r = await c.get(f"/sessions/{sid_a}/export", headers=hb)
+        reh, sh, pid, sid = await _re_project_and_session(c)
+        await c.post("/auth/signup", json={"email": "outsider_exp@x.com", "password": "Passw0rd!", "real_name": "O"})
+        out_tok = (await c.post("/auth/login", json={"email": "outsider_exp@x.com", "password": "Passw0rd!"})).json()["access_token"]
+        r = await c.get(f"/sessions/{sid}/export", headers={"Authorization": f"Bearer {out_tok}"})
         assert r.status_code == 404
 
 
@@ -78,12 +94,8 @@ async def test_export_401_when_unauthenticated():
 
 @pytest.mark.asyncio
 async def test_get_requirements_returns_seeded_items():
-    from datetime import datetime, timedelta, timezone
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token = await _signup_login(c)
-        h = {"Authorization": f"Bearer {token}"}
-        sid = (await c.post("/sessions", json={"project_title": "POS"}, headers=h)).json()["id"]
-        from app.db.mongo import get_db
+        reh, sh, pid, sid = await _re_project_and_session(c)
         base = datetime.now(timezone.utc)
         await get_db().requirements.insert_many([
             {
@@ -101,7 +113,7 @@ async def test_get_requirements_returns_seeded_items():
                 "created_at": base + timedelta(seconds=1),
             },
         ])
-        r = await c.get(f"/sessions/{sid}/requirements", headers=h)
+        r = await c.get(f"/sessions/{sid}/requirements", headers=sh)
         assert r.status_code == 200, r.text
         body = r.json()
         assert isinstance(body, list)
@@ -126,10 +138,8 @@ async def test_get_requirements_401_when_unauthenticated():
 @pytest.mark.asyncio
 async def test_get_requirements_404_for_other_user():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token_a = await _signup_login(c, "a@x.com")
-        token_b = await _signup_login(c, "b@x.com")
-        ha = {"Authorization": f"Bearer {token_a}"}
-        hb = {"Authorization": f"Bearer {token_b}"}
-        sid_a = (await c.post("/sessions", json={"project_title": "A"}, headers=ha)).json()["id"]
-        r = await c.get(f"/sessions/{sid_a}/requirements", headers=hb)
+        reh, sh, pid, sid = await _re_project_and_session(c)
+        await c.post("/auth/signup", json={"email": "outsider2_exp@x.com", "password": "Passw0rd!", "real_name": "O2"})
+        out_tok = (await c.post("/auth/login", json={"email": "outsider2_exp@x.com", "password": "Passw0rd!"})).json()["access_token"]
+        r = await c.get(f"/sessions/{sid}/requirements", headers={"Authorization": f"Bearer {out_tok}"})
         assert r.status_code == 404

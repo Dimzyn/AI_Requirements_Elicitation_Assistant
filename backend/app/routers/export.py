@@ -26,6 +26,27 @@ def _to_out_req(r: dict) -> RequirementOut:
     )
 
 
+async def _load_session_for_user(db, oid: ObjectId, user: dict):
+    """Load a session doc, allowing access if the caller is the stakeholder
+    or an RE who owns the session's project.  Raises 404 on any access denial."""
+    s = await db.sessions.find_one({"_id": oid})
+    if not s:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+
+    caller_id = user["_id"]
+    if s.get("stakeholder_id") == caller_id:
+        return s
+
+    if user.get("role") == "requirements_engineer":
+        project = await db.projects.find_one(
+            {"_id": ObjectId(s["project_id"]), "owner_id": caller_id}
+        )
+        if project:
+            return s
+
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+
+
 @router.get("/{sid}/export", response_class=PlainTextResponse)
 async def export_session(
     sid: str,
@@ -37,14 +58,14 @@ async def export_session(
         oid = ObjectId(sid)
     except Exception as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
-    if user.get("role") == "requirements_engineer":
-        s = await db.sessions.find_one({"_id": oid})
-    else:
-        s = await db.sessions.find_one({"_id": oid, "user_id": user["_id"]})
-    if not s:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+    s = await _load_session_for_user(db, oid, user)
+
+    # Use the project title for the report heading; fall back to session title or sid
+    project = await db.projects.find_one({"_id": ObjectId(s["project_id"])})
+    report_title = (project or {}).get("title") or s.get("title") or sid
+
     reqs = [r async for r in db.requirements.find({"session_id": sid})]
-    md = compile_markdown(project_title=s["project_title"], requirements=reqs)
+    md = compile_markdown(project_title=report_title, requirements=reqs)
     if format == "txt":
         return md.replace("#", "").strip()
     return md
@@ -60,12 +81,7 @@ async def list_requirements(
         oid = ObjectId(sid)
     except Exception as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
-    if user.get("role") == "requirements_engineer":
-        s = await db.sessions.find_one({"_id": oid})
-    else:
-        s = await db.sessions.find_one({"_id": oid, "user_id": user["_id"]})
-    if not s:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+    await _load_session_for_user(db, oid, user)
 
     out: list[RequirementOut] = []
     async for r in db.requirements.find({"session_id": sid}).sort("created_at", 1):
