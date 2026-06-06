@@ -8,10 +8,6 @@ type State = {
   setSessions: (s: Session[]) => void;
   activeId: string | null;
   setActive: (id: string | null) => void;
-  // One-shot guard: when a session is opened, suppress the next
-  // auto-load of its turns so the optimistic bubbles aren't clobbered.
-  skipNextTurnLoad: boolean;
-  setSkipNextTurnLoad: (v: boolean) => void;
   turns: Turn[];
   setTurns: (t: Turn[]) => void;
   appendTurns: (t: Turn[]) => void;
@@ -31,8 +27,6 @@ export const useSessionStore = create<State>((set) => ({
         ? {}
         : { activeId, turns: [], requirements: [], status: "idle" }
     ),
-  skipNextTurnLoad: false,
-  setSkipNextTurnLoad: (skipNextTurnLoad) => set({ skipNextTurnLoad }),
   turns: [],
   setTurns: (turns) => set({ turns }),
   appendTurns: (t) => set((s) => ({ turns: [...s.turns, ...t] })),

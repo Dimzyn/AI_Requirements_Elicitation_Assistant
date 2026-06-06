@@ -22,7 +22,6 @@ const reset = () =>
   useSessionStore.setState({
     sessions: [],
     activeId: null,
-    skipNextTurnLoad: false,
     turns: [],
     requirements: [],
     status: "idle",
