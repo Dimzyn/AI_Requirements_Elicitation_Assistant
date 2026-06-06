@@ -1,5 +1,5 @@
 from bson import ObjectId
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 
 from .db.mongo import get_db
 from .services.auth_service import decode_token
@@ -33,4 +33,16 @@ async def current_user_doc(authorization: str | None = Header(default=None)) -> 
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "user not found")
     user["_id"] = str(user["_id"])
+    return user
+
+
+async def require_engineer(user: dict = Depends(current_user_doc)) -> dict:
+    if user.get("role") != "requirements_engineer":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "requires requirements_engineer role")
+    return user
+
+
+async def require_stakeholder(user: dict = Depends(current_user_doc)) -> dict:
+    if user.get("role") != "stakeholder":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "requires stakeholder role")
     return user
