@@ -21,3 +21,18 @@ async def test_re_invites_stakeholder_returns_accept_url():
         assert body["status"] == "pending"
         assert body["token"] in body["accept_url"]
         assert body["accept_url"].endswith(f"/invite/{body['token']}")
+
+
+@pytest.mark.asyncio
+async def test_list_members_after_accept():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        h = {"Authorization": f"Bearer {await _re_token(c)}"}
+        pid = (await c.post("/projects", json={"title": "P"}, headers=h)).json()["id"]
+        token = (await c.post(f"/projects/{pid}/invitations", json={"email": "s@x.com"}, headers=h)).json()["token"]
+        await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "Stan"})
+        r = await c.get(f"/projects/{pid}/members", headers=h)
+        assert r.status_code == 200
+        members = r.json()
+        assert len(members) == 1
+        assert members[0]["email"] == "s@x.com"
+        assert members[0]["real_name"] == "Stan"

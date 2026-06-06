@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 from ..db.mongo import get_db
 from ..models.invitation import InvitationStatus
 from ..schemas.invitation import AcceptRequest, AcceptResponse, InvitationView
-from ..services.auth_service import create_token, hash_password
+from ..services.auth_service import create_token, hash_password, verify_password
 
 router = APIRouter(prefix="/invitations", tags=["invitations"])
 
@@ -45,13 +45,15 @@ async def accept_invitation(token: str, body: AcceptRequest):
 
     user = await db.users.find_one({"email": inv["email"]})
     if user:
+        if not verify_password(body.password, user["hashed_password"]):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid password for existing account")
         user_id = str(user["_id"])
     else:
         now = datetime.now(timezone.utc)
         doc = {
             "email": inv["email"],
             "hashed_password": hash_password(body.password),
-            "real_name": body.real_name or inv["email"].split("@")[0],
+            "real_name": (body.real_name or "").strip() or inv["email"].split("@")[0],
             "phone": None,
             "domain_level": "novice",
             "role": "stakeholder",

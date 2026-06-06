@@ -58,3 +58,28 @@ async def test_expired_invitation_rejected():
         )
         r = await c.get(f"/invitations/{token}")
         assert r.status_code == 410
+
+
+@pytest.mark.asyncio
+async def test_existing_user_accepts_with_correct_password():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        # existing stakeholder account
+        await c.post("/auth/signup", json={"email": "s@x.com", "password": "Stake123!", "real_name": "S"})
+        h, pid = await _re_and_project(c)
+        token = (await c.post(f"/projects/{pid}/invitations", json={"email": "s@x.com"}, headers=h)).json()["token"]
+        r = await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!"})
+        assert r.status_code == 200
+        assert "access_token" in r.json()
+        db = get_db()
+        u = await db.users.find_one({"email": "s@x.com"})
+        assert await db.memberships.find_one({"project_id": pid, "user_id": str(u["_id"])})
+
+
+@pytest.mark.asyncio
+async def test_existing_user_accept_wrong_password_rejected():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        await c.post("/auth/signup", json={"email": "s@x.com", "password": "Stake123!", "real_name": "S"})
+        h, pid = await _re_and_project(c)
+        token = (await c.post(f"/projects/{pid}/invitations", json={"email": "s@x.com"}, headers=h)).json()["token"]
+        r = await c.post(f"/invitations/{token}/accept", json={"password": "WRONGpass1"})
+        assert r.status_code == 401
