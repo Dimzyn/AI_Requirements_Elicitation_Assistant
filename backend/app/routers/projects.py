@@ -1,11 +1,13 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..db.mongo import get_db
 from ..deps import require_engineer
-from ..schemas.project import ProjectCreate, ProjectOut
+from ..models.invitation import InvitationStatus
+from ..schemas.project import InviteCreate, InviteOut, MemberOut, ProjectCreate, ProjectOut
+from ..services.invite_service import accept_url_for, new_token
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -64,3 +66,46 @@ async def get_project(pid: str, user: dict = Depends(require_engineer)):
     db = get_db()
     doc = await _owned_project_or_404(db, pid, user["_id"])
     return _project_out(doc)
+
+
+@router.post("/{pid}/invitations", status_code=201, response_model=InviteOut)
+async def invite_stakeholder(pid: str, body: InviteCreate, user: dict = Depends(require_engineer)):
+    db = get_db()
+    await _owned_project_or_404(db, pid, user["_id"])
+    token = new_token()
+    now = datetime.now(timezone.utc)
+    doc = {
+        "project_id": pid,
+        "email": str(body.email),
+        "token": token,
+        "status": InvitationStatus.PENDING.value,
+        "expires_at": now + timedelta(days=7),
+        "created_at": now,
+    }
+    res = await db.invitations.insert_one(doc)
+    return InviteOut(
+        id=str(res.inserted_id),
+        email=doc["email"],
+        status=doc["status"],
+        token=token,
+        accept_url=accept_url_for(token),
+        expires_at=doc["expires_at"].isoformat(),
+    )
+
+
+@router.get("/{pid}/members", response_model=list[MemberOut])
+async def list_members(pid: str, user: dict = Depends(require_engineer)):
+    db = get_db()
+    await _owned_project_or_404(db, pid, user["_id"])
+    out: list[MemberOut] = []
+    async for m in db.memberships.find({"project_id": pid}):
+        u = await db.users.find_one({"_id": ObjectId(m["user_id"])})
+        if not u:
+            continue
+        out.append(MemberOut(
+            user_id=m["user_id"],
+            email=u["email"],
+            real_name=u["real_name"],
+            joined_at=m["joined_at"].isoformat() if m.get("joined_at") else None,
+        ))
+    return out
