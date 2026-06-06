@@ -4,7 +4,7 @@ from app.main import app
 from app.db.mongo import get_db
 from app.routers import dialogue as dialogue_mod
 from app.services.question_generator import GeneratedQuestion
-from tests.test_sessions_project_scope import _re_project_and_invited_stakeholder
+from tests.helpers import _re_project_and_invited_stakeholder
 
 
 class FakeGen:
@@ -328,6 +328,15 @@ async def test_post_message_and_question_401_unauthed():
         r2 = await c.post("/sessions/507f1f77bcf86cd799439011/questions")
         assert r1.status_code == 401
         assert r2.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_re_cannot_post_turn():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid = await _re_project_and_invited_stakeholder(c)
+        sid = (await c.post(f"/projects/{pid}/session", headers=sh)).json()["id"]
+        r = await c.post(f"/sessions/{sid}/turns", json={"content": "hi"}, headers=reh)
+        assert r.status_code == 403
 
 
 @pytest.mark.asyncio

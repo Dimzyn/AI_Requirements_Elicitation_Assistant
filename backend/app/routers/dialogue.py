@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..db.mongo import get_db
-from ..deps import current_user_id_from_token
+from ..deps import current_user_id_from_token, require_stakeholder
 from ..schemas.dialogue import TurnIn, QuestionOut, TurnOut, TurnResponse, MessageResponse
 from ..services.question_generator import QuestionGenerator
 from ..services.llm_service import LLMService, UpstreamUnavailable
@@ -43,6 +43,14 @@ async def _maybe_auto_name(db, session: dict, oid, stakeholder_text: str) -> str
         return title
     except Exception:
         return current
+
+
+async def _build_summary(db, session: dict) -> str:
+    """Build the AI context string: project background prepended to session summary."""
+    project = await db.projects.find_one({"_id": ObjectId(session["project_id"])})
+    project_context = (project or {}).get("background") or ""
+    base_summary = session.get("summary") or ""
+    return (project_context + "\n\n" + base_summary).strip() if project_context else base_summary
 
 
 import re
@@ -100,8 +108,9 @@ async def post_turn(
     sid: str,
     body: TurnIn,
     count: int = Query(default=5, ge=1, le=10),
-    user_id: str = Depends(current_user_id_from_token),
+    user: dict = Depends(require_stakeholder),
 ):
+    user_id = user["_id"]
     db = get_db()
     try:
         oid = ObjectId(sid)
@@ -112,11 +121,7 @@ async def post_turn(
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
 
-    # Build AI context: prepend project background to session summary
-    project = await db.projects.find_one({"_id": ObjectId(session["project_id"])})
-    project_context = (project or {}).get("background") or ""
-    base_summary = session.get("summary") or ""
-    summary = (project_context + "\n\n" + base_summary).strip() if project_context else base_summary
+    summary = await _build_summary(db, session)
 
     now = datetime.now(timezone.utc)
     stakeholder_doc = {
@@ -178,8 +183,9 @@ async def post_turn(
 async def post_message(
     sid: str,
     body: TurnIn,
-    user_id: str = Depends(current_user_id_from_token),
+    user: dict = Depends(require_stakeholder),
 ):
+    user_id = user["_id"]
     db = get_db()
     try:
         oid = ObjectId(sid)
@@ -217,8 +223,9 @@ async def post_message(
 @router.post("/{sid}/questions", response_model=QuestionOut)
 async def post_question(
     sid: str,
-    user_id: str = Depends(current_user_id_from_token),
+    user: dict = Depends(require_stakeholder),
 ):
+    user_id = user["_id"]
     db = get_db()
     try:
         oid = ObjectId(sid)
@@ -228,11 +235,7 @@ async def post_question(
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
 
-    # Build AI context: prepend project background to session summary
-    project = await db.projects.find_one({"_id": ObjectId(session["project_id"])})
-    project_context = (project or {}).get("background") or ""
-    base_summary = session.get("summary") or ""
-    summary = (project_context + "\n\n" + base_summary).strip() if project_context else base_summary
+    summary = await _build_summary(db, session)
 
     history: list[dict] = []
     async for t in db.turns.find({"session_id": sid}).sort("created_at", 1):

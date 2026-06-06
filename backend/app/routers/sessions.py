@@ -98,4 +98,6 @@ async def complete_session(sid: str, user: dict = Depends(require_engineer)):
         {"$set": {"status": "completed", "updated_at": datetime.now(timezone.utc)}},
         return_document=ReturnDocument.AFTER,
     )
+    if not s:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
     return _to_out(s)
