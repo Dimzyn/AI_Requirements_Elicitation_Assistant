@@ -41,16 +41,15 @@ async def _re_project_and_session(c, project_title="POS"):
 
 
 @pytest.mark.asyncio
-async def test_export_returns_markdown_for_stakeholder():
+async def test_export_403_for_stakeholder():
+    """Stakeholders are blocked from exporting — only the owning RE may export."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         reh, sh, pid, sid = await _re_project_and_session(c, project_title="POS")
         await get_db().requirements.insert_one({
             "session_id": sid, "statement": "Cashiers can ring up sales.", "type": "functional"
         })
         r = await c.get(f"/sessions/{sid}/export", headers=sh)
-        assert r.status_code == 200, r.text
-        assert "# Requirements: POS" in r.text
-        assert "Cashiers can ring up sales." in r.text
+        assert r.status_code == 403, r.text
 
 
 @pytest.mark.asyncio
@@ -70,19 +69,20 @@ async def test_export_returns_markdown_for_re():
 async def test_export_txt_strips_markdown_hashes():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         reh, sh, pid, sid = await _re_project_and_session(c)
-        r = await c.get(f"/sessions/{sid}/export?format=txt", headers=sh)
+        r = await c.get(f"/sessions/{sid}/export?format=txt", headers=reh)
         assert r.status_code == 200
         assert "#" not in r.text
 
 
 @pytest.mark.asyncio
-async def test_export_404_for_other_user():
+async def test_export_403_for_non_re_user():
+    """A plain (stakeholder-role) outsider gets 403 — only REs may export."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         reh, sh, pid, sid = await _re_project_and_session(c)
         await c.post("/auth/signup", json={"email": "outsider_exp@x.com", "password": "Passw0rd!", "real_name": "O"})
         out_tok = (await c.post("/auth/login", json={"email": "outsider_exp@x.com", "password": "Passw0rd!"})).json()["access_token"]
         r = await c.get(f"/sessions/{sid}/export", headers={"Authorization": f"Bearer {out_tok}"})
-        assert r.status_code == 404
+        assert r.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -113,7 +113,7 @@ async def test_get_requirements_returns_seeded_items():
                 "created_at": base + timedelta(seconds=1),
             },
         ])
-        r = await c.get(f"/sessions/{sid}/requirements", headers=sh)
+        r = await c.get(f"/sessions/{sid}/requirements", headers=reh)
         assert r.status_code == 200, r.text
         body = r.json()
         assert isinstance(body, list)
@@ -136,10 +136,48 @@ async def test_get_requirements_401_when_unauthenticated():
 
 
 @pytest.mark.asyncio
-async def test_get_requirements_404_for_other_user():
+async def test_get_requirements_403_for_non_re_user():
+    """A plain (stakeholder-role) outsider gets 403 on GET /sessions/{sid}/requirements."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         reh, sh, pid, sid = await _re_project_and_session(c)
         await c.post("/auth/signup", json={"email": "outsider2_exp@x.com", "password": "Passw0rd!", "real_name": "O2"})
         out_tok = (await c.post("/auth/login", json={"email": "outsider2_exp@x.com", "password": "Passw0rd!"})).json()["access_token"]
         r = await c.get(f"/sessions/{sid}/requirements", headers={"Authorization": f"Bearer {out_tok}"})
-        assert r.status_code == 404
+        assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_get_requirements_403_for_stakeholder():
+    """Stakeholders are blocked from listing requirements (403)."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _re_project_and_session(c)
+        r = await c.get(f"/sessions/{sid}/requirements", headers=sh)
+        assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_export_404_for_cross_owner_re():
+    """A second RE who does NOT own the project gets 404 on export."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _re_project_and_session(c)
+        # Create a second RE (different owner)
+        await c.post("/auth/signup", json={"email": "re2_exp@x.com", "password": "Passw0rd!", "real_name": "RE2"})
+        await get_db().users.update_one({"email": "re2_exp@x.com"}, {"$set": {"role": "requirements_engineer"}})
+        re2_tok = (await c.post("/auth/login", json={"email": "re2_exp@x.com", "password": "Passw0rd!"})).json()["access_token"]
+        re2h = {"Authorization": f"Bearer {re2_tok}"}
+        r = await c.get(f"/sessions/{sid}/export", headers=re2h)
+        assert r.status_code == 404, r.text
+
+
+@pytest.mark.asyncio
+async def test_get_requirements_404_for_cross_owner_re():
+    """A second RE who does NOT own the project gets 404 on GET /sessions/{sid}/requirements."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _re_project_and_session(c)
+        # Create a second RE (different owner)
+        await c.post("/auth/signup", json={"email": "re3_exp@x.com", "password": "Passw0rd!", "real_name": "RE3"})
+        await get_db().users.update_one({"email": "re3_exp@x.com"}, {"$set": {"role": "requirements_engineer"}})
+        re3_tok = (await c.post("/auth/login", json={"email": "re3_exp@x.com", "password": "Passw0rd!"})).json()["access_token"]
+        re3h = {"Authorization": f"Bearer {re3_tok}"}
+        r = await c.get(f"/sessions/{sid}/requirements", headers=re3h)
+        assert r.status_code == 404, r.text

@@ -35,6 +35,11 @@ def _require_sre(user: dict):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "requires requirements_engineer role")
 
 
+async def _owned_session_ids(db, owner_id: str) -> list[str]:
+    owned_projects = [str(p["_id"]) async for p in db.projects.find({"owner_id": owner_id})]
+    return [str(s["_id"]) async for s in db.sessions.find({"project_id": {"$in": owned_projects}})]
+
+
 @router.get("", response_model=list[RequirementOut])
 async def list_all_requirements(
     session_id: str | None = Query(default=None),
@@ -44,8 +49,11 @@ async def list_all_requirements(
 ):
     _require_sre(user)
     db = get_db()
-    query: dict = {}
+    owned_sids = await _owned_session_ids(db, user["_id"])
+    query: dict = {"session_id": {"$in": owned_sids}}
     if session_id:
+        if session_id not in owned_sids:
+            return []
         query["session_id"] = session_id
     if req_status:
         query["status"] = req_status
@@ -69,6 +77,16 @@ async def patch_requirement(
         oid = ObjectId(rid)
     except Exception as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "requirement not found") from exc
+
+    existing = await db.requirements.find_one({"_id": oid})
+    if not existing:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "requirement not found")
+    sess = await db.sessions.find_one({"_id": ObjectId(existing["session_id"])})
+    if not sess:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "requirement not found")
+    owns = await db.projects.find_one({"_id": ObjectId(sess["project_id"]), "owner_id": user["_id"]})
+    if not owns:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "requirement not found")
 
     updates: dict = {}
     if body.statement is not None:
