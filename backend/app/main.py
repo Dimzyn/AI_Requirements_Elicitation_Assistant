@@ -8,6 +8,7 @@ from .routers import sessions as sessions_router
 from .routers import dialogue as dialogue_router
 from .routers import export as export_router
 from .routers import requirements as requirements_router
+from .routers import projects as projects_router
 
 app = FastAPI(title="AI Probing Question Generator")
 app.add_middleware(
@@ -22,6 +23,7 @@ app.include_router(sessions_router.router)
 app.include_router(dialogue_router.router)
 app.include_router(export_router.router)
 app.include_router(requirements_router.router)
+app.include_router(projects_router.router)
 
 
 @app.on_event("startup")
