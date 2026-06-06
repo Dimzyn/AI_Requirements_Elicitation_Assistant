@@ -19,6 +19,7 @@ def get_db() -> AsyncIOMotorDatabase:
 async def init_indexes() -> None:
     db = get_db()
     await db.users.create_index("email", unique=True)
+    # NOTE: replaces the old (user_id, status) session index; sessions are now project-scoped.
     await db.sessions.create_index([("project_id", 1), ("stakeholder_id", 1)], unique=True)
     await db.sessions.create_index([("stakeholder_id", 1), ("status", 1)])
     await db.turns.create_index([("session_id", 1), ("created_at", 1)])

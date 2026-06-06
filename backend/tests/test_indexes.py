@@ -8,5 +8,7 @@ async def test_init_indexes_creates_new_collections():
     db = get_db()
     member_idx = await db.memberships.index_information()
     invite_idx = await db.invitations.index_information()
-    assert any(v.get("unique") for v in member_idx.values())
-    assert any(v.get("unique") for v in invite_idx.values())
+    def keys_of(idx):
+        return tuple(k for k, _ in idx["key"])
+    assert any(keys_of(v) == ("project_id", "user_id") and v.get("unique") for v in member_idx.values())
+    assert any(keys_of(v) == ("token",) and v.get("unique") for v in invite_idx.values())

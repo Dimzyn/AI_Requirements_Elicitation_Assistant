@@ -10,7 +10,7 @@ def test_user_requires_email():
         User(email="", hashed_password="x", real_name="A")
 
 def test_session_default_active():
-    s = InterviewSession(user_id="u1", project_title="P")
+    s = InterviewSession(project_id="p1", stakeholder_id="u1")
     assert s.status == SessionStatus.ACTIVE
 
 def test_turn_role_enum():
