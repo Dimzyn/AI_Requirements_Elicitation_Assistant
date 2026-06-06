@@ -1,0 +1,12 @@
+import pytest
+from app.db.mongo import init_indexes, get_db
+
+
+@pytest.mark.asyncio
+async def test_init_indexes_creates_new_collections():
+    await init_indexes()
+    db = get_db()
+    member_idx = await db.memberships.index_information()
+    invite_idx = await db.invitations.index_information()
+    assert any(v.get("unique") for v in member_idx.values())
+    assert any(v.get("unique") for v in invite_idx.values())

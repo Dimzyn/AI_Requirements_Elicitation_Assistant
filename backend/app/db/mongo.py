@@ -19,7 +19,12 @@ def get_db() -> AsyncIOMotorDatabase:
 async def init_indexes() -> None:
     db = get_db()
     await db.users.create_index("email", unique=True)
-    await db.sessions.create_index([("user_id", 1), ("status", 1)])
+    await db.sessions.create_index([("project_id", 1), ("stakeholder_id", 1)], unique=True)
+    await db.sessions.create_index([("stakeholder_id", 1), ("status", 1)])
     await db.turns.create_index([("session_id", 1), ("created_at", 1)])
     await db.requirements.create_index("session_id")
     await db.requirements.create_index("status")
+    await db.projects.create_index("owner_id")
+    await db.memberships.create_index([("project_id", 1), ("user_id", 1)], unique=True)
+    await db.invitations.create_index("token", unique=True)
+    await db.invitations.create_index([("project_id", 1), ("email", 1)])
