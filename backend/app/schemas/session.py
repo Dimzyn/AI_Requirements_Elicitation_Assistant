@@ -11,3 +11,5 @@ class SessionOut(BaseModel):
     status: str
     phase: str
     created_at: Optional[str] = None
+    stakeholder_name: Optional[str] = None
+    stakeholder_email: Optional[str] = None

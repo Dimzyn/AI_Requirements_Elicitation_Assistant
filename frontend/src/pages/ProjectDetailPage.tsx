@@ -195,19 +195,27 @@ export default function ProjectDetailPage() {
                     className="flex items-center justify-between rounded-lg border border-border bg-surface px-4 py-3 shadow-card"
                   >
                     <div className="flex-1 min-w-0">
-                      <Link
-                        to={`/chat?session=${s.id}`}
-                        className="text-sm font-medium text-foreground hover:text-accent hover:underline"
-                      >
-                        {s.title || "Untitled interview"}
-                      </Link>
-                      <span
-                        className={`ml-2 text-xs ${
-                          s.status === "completed" ? "text-success" : "text-muted"
-                        }`}
-                      >
-                        · {s.status}
-                      </span>
+                      <div>
+                        <Link
+                          to={`/chat?session=${s.id}`}
+                          className="text-sm font-medium text-foreground hover:text-accent hover:underline"
+                        >
+                          {s.title || "Untitled interview"}
+                        </Link>
+                        <span
+                          className={`ml-2 text-xs ${
+                            s.status === "completed" ? "text-success" : "text-muted"
+                          }`}
+                        >
+                          · {s.status}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted truncate">
+                        {s.stakeholder_name || s.stakeholder_email || "Unknown stakeholder"}
+                        {s.stakeholder_name && s.stakeholder_email && (
+                          <span className="text-muted/70"> · {s.stakeholder_email}</span>
+                        )}
+                      </p>
                     </div>
                     {s.status !== "completed" && (
                       <button

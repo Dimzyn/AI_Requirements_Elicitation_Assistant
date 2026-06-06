@@ -36,6 +36,24 @@ async def test_re_lists_sessions_in_owned_project():
 
 
 @pytest.mark.asyncio
+async def test_re_session_listing_shows_stakeholder_identity():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid = await _re_project_and_invited_stakeholder(c)
+        await c.post(f"/projects/{pid}/session", headers=sh)
+
+        r = await c.get(f"/projects/{pid}/sessions", headers=reh)
+        assert r.status_code == 200
+        s = r.json()[0]
+        assert s["stakeholder_name"] == "S"
+        assert s["stakeholder_email"] == "s@x.com"
+
+        r = await c.get("/sessions/all", headers=reh)
+        assert r.status_code == 200
+        assert r.json()[0]["stakeholder_name"] == "S"
+        assert r.json()[0]["stakeholder_email"] == "s@x.com"
+
+
+@pytest.mark.asyncio
 async def test_re_completes_session():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         reh, sh, pid = await _re_project_and_invited_stakeholder(c)

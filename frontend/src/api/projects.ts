@@ -33,6 +33,8 @@ export type ProjectSession = {
   status: string;
   phase: string;
   created_at?: string | null;
+  stakeholder_name?: string | null;
+  stakeholder_email?: string | null;
 };
 
 export const listProjects = () => api.get<Project[]>("/projects").then((r) => r.data);
