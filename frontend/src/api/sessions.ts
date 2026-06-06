@@ -47,3 +47,6 @@ export const exportSession = (id: string, format: "md" | "txt" = "md") =>
   api
     .get(`/sessions/${id}/export`, { params: { format }, responseType: "blob" })
     .then((r) => r.data as Blob);
+
+export const openProjectSession = (pid: string) =>
+  api.post(`/projects/${pid}/session`).then((r) => r.data);
