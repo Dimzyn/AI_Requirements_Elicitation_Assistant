@@ -114,9 +114,9 @@ export default function SpecPage() {
                   ? "bg-accent/10 font-medium text-accent"
                   : "text-foreground hover:bg-surface-muted"
               }`}
-              title={s.project_title}
+              title={s.title ?? undefined}
             >
-              {s.project_title}
+              {s.title ?? s.id}
             </button>
           ))}
         </aside>

@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { useSessionStore } from "../../store/sessionStore";
-import { GREETING } from "../../constants";
 import StatusIndicator from "./StatusIndicator";
 import Badge, { type BadgeTone } from "../ui/Badge";
 
@@ -14,25 +13,11 @@ const STRATEGY_DISPLAY: Record<string, { label: string; tone: BadgeTone }> = {
 
 export default function ChatPanel() {
   const turns = useSessionStore((s) => s.turns);
-  const draft = useSessionStore((s) => s.draft);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns.length]);
-
-  // Draft welcome screen: show the AI greeting before any session exists.
-  if (turns.length === 0 && draft) {
-    return (
-      <div className="flex-1 space-y-3 overflow-y-auto p-6">
-        <div className="flex justify-start">
-          <div className="max-w-[74%] whitespace-pre-wrap rounded-2xl rounded-bl-sm border border-border bg-surface px-4 py-2.5 text-sm text-foreground shadow-card">
-            {GREETING}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (turns.length === 0) {
     return (

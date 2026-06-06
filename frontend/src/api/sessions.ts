@@ -1,6 +1,14 @@
 import { api } from "./client";
 
-export type Session = { id: string; project_title: string; status: string; phase: string };
+export type Session = {
+  id: string;
+  project_id: string;
+  stakeholder_id: string;
+  title?: string | null;
+  status: string;
+  phase: string;
+  created_at?: string | null;
+};
 export type Turn = {
   id: string;
   role: "stakeholder" | "agent";
@@ -21,14 +29,6 @@ export type PostTurnResponse = {
 };
 
 export const listSessions = () => api.get<Session[]>("/sessions").then((r) => r.data);
-export const createSession = (project_title?: string) =>
-  api.post<Session>("/sessions", project_title ? { project_title } : {}).then((r) => r.data);
-export const archiveSession = (id: string) =>
-  api.post<Session>(`/sessions/${id}/archive`).then((r) => r.data);
-export const unarchiveSession = (id: string) =>
-  api.post<Session>(`/sessions/${id}/unarchive`).then((r) => r.data);
-export const deleteSession = (id: string) =>
-  api.delete<void>(`/sessions/${id}`).then((r) => r.data);
 export const getTurns = (id: string) => api.get<Turn[]>(`/sessions/${id}/turns`).then((r) => r.data);
 export const postTurn = (id: string, content: string, count = 5) =>
   api.post<PostTurnResponse>(`/sessions/${id}/turns`, { content }, { params: { count } }).then((r) => r.data);
@@ -49,4 +49,4 @@ export const exportSession = (id: string, format: "md" | "txt" = "md") =>
     .then((r) => r.data as Blob);
 
 export const openProjectSession = (pid: string) =>
-  api.post(`/projects/${pid}/session`).then((r) => r.data);
+  api.post<Session>(`/projects/${pid}/session`).then((r) => r.data);

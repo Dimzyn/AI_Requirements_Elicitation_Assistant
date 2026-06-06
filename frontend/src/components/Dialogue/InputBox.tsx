@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useSessionStore } from "../../store/sessionStore";
-import { createSession, postMessage, postQuestion, getRequirements } from "../../api/sessions";
+import { postMessage, postQuestion, getRequirements } from "../../api/sessions";
+import { useAuthStore } from "../../store/authStore";
 import type { Turn } from "../../api/sessions";
-import { GREETING } from "../../constants";
 
 const DEFAULT_COUNT = 1;
 const MIN_COUNT = 1;
@@ -20,25 +20,40 @@ function describeError(err: unknown): string {
 }
 
 export default function InputBox() {
-  const { activeId, draft, sessions, setStatus, appendTurns, setRequirements } = useSessionStore();
+  const { activeId, sessions, setStatus, appendTurns, setRequirements } = useSessionStore();
+  const role = useAuthStore((s) => s.role);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [count, setCount] = useState(DEFAULT_COUNT);
   const [error, setError] = useState<string | null>(null);
 
-  // Render the input when a session is active or when we're in the draft welcome state.
-  if (!activeId && !draft) return null;
-
-  const activeSession = activeId ? sessions.find((s) => s.id === activeId) : undefined;
-  const isArchived = activeSession ? activeSession.status !== "active" : false;
-
-  if (isArchived) {
+  if (!activeId) {
     return (
       <div className="border-t border-border bg-surface-muted px-4 py-3 text-center text-xs text-muted">
-        This session is archived. Restore it from the sidebar to continue the conversation.
+        Select a project to start the interview.
       </div>
     );
   }
+
+  const activeSession = sessions.find((s) => s.id === activeId);
+
+  if (activeSession?.status === "completed") {
+    return (
+      <div className="border-t border-border bg-surface-muted px-4 py-3 text-center text-xs text-muted">
+        This requirements elicitation has ended. Thank you!
+      </div>
+    );
+  }
+
+  if (role === "requirements_engineer") {
+    return (
+      <div className="border-t border-border bg-surface-muted px-4 py-3 text-center text-xs text-muted">
+        Read-only view — only the stakeholder can respond in this interview.
+      </div>
+    );
+  }
+
+  const session_id = activeId;
 
   const onSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,31 +63,6 @@ export default function InputBox() {
     setBusy(true);
     setError(null);
     setText("");
-
-    // Resolve the target session. In draft mode, create it now (the backend
-    // seeds the greeting turn); otherwise send to the active session.
-    let sid = activeId;
-    if (!sid) {
-      try {
-        const s = await createSession();
-        sid = s.id;
-        const store = useSessionStore.getState();
-        useSessionStore.setState({ sessions: [s, ...store.sessions] });
-        store.setSkipNextTurnLoad(true);
-        store.setActive(s.id); // clears turns, leaves draft mode
-        // Seed the greeting locally so it survives the round-trip (it's also in the DB).
-        store.setTurns([
-          { id: `greeting-${s.id}`, role: "agent", content: GREETING, created_at: new Date().toISOString() },
-        ]);
-      } catch (err) {
-        setText(content);
-        setError(describeError(err));
-        setBusy(false);
-        return;
-      }
-    }
-
-    const session_id = sid as string;
 
     const tempId = `temp-${Date.now()}`;
     const optimistic: Turn = {
@@ -90,7 +80,7 @@ export default function InputBox() {
         turns: s.turns.map((t) => (t.id === tempId ? { ...t, id: stakeholder_turn_id } : t)),
         // Reflect the auto-generated name in the sidebar without a refetch.
         sessions: session_title
-          ? s.sessions.map((se) => (se.id === session_id ? { ...se, project_title: session_title } : se))
+          ? s.sessions.map((se) => (se.id === session_id ? { ...se, title: session_title } : se))
           : s.sessions,
       }));
     } catch (err) {

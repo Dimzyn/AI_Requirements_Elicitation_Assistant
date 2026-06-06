@@ -42,7 +42,7 @@ export default function LiveRequirements() {
     if (!activeId) return;
     const blob = await exportSession(activeId, format);
     const title =
-      sessions.find((s) => s.id === activeId)?.project_title?.replace(/\s+/g, "_") ?? "requirements";
+      sessions.find((s) => s.id === activeId)?.title?.replace(/\s+/g, "_") ?? "requirements";
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
