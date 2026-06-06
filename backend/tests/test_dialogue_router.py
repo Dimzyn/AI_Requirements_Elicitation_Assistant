@@ -1,8 +1,10 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
+from app.db.mongo import get_db
 from app.routers import dialogue as dialogue_mod
 from app.services.question_generator import GeneratedQuestion
+from tests.test_sessions_project_scope import _re_project_and_invited_stakeholder
 
 
 class FakeGen:
@@ -47,10 +49,13 @@ class BoomTitleGen:
         raise RuntimeError("llm down")
 
 
-async def _signup_login(c, email="a@x.com"):
-    await c.post("/auth/signup", json={"email": email, "password": "Passw0rd!", "real_name": "Ada"})
-    r = await c.post("/auth/login", json={"email": email, "password": "Passw0rd!"})
-    return r.json()["access_token"]
+async def _setup_session(c, monkeypatch=None):
+    """Create a RE + project + invited stakeholder, open a session, return (reh, sh, pid, sid)."""
+    reh, sh, pid = await _re_project_and_invited_stakeholder(c)
+    r = await c.post(f"/projects/{pid}/session", headers=sh)
+    assert r.status_code in (200, 201), r.text
+    sid = r.json()["id"]
+    return reh, sh, pid, sid
 
 
 @pytest.mark.asyncio
@@ -58,11 +63,10 @@ async def test_post_turn_returns_default_5_questions(monkeypatch):
     fg = FakeGen()
     monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token = await _signup_login(c)
-        h = {"Authorization": f"Bearer {token}"}
-        sid = (await c.post("/sessions", json={"project_title": "P"}, headers=h)).json()["id"]
-        r = await c.post(f"/sessions/{sid}/turns", json={"content": "I want a POS system."}, headers=h)
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/turns", json={"content": "I want a POS system."}, headers=sh)
         assert r.status_code == 200, r.text
         body = r.json()
         assert len(body["questions"]) == 5
@@ -75,11 +79,10 @@ async def test_count_param_caps_at_10(monkeypatch):
     fg = FakeGen()
     monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token = await _signup_login(c)
-        h = {"Authorization": f"Bearer {token}"}
-        sid = (await c.post("/sessions", json={"project_title": "P"}, headers=h)).json()["id"]
-        r = await c.post(f"/sessions/{sid}/turns?count=999", json={"content": "x"}, headers=h)
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/turns?count=999", json={"content": "x"}, headers=sh)
         assert r.status_code == 422
 
 
@@ -88,11 +91,10 @@ async def test_history_grows_within_single_request(monkeypatch):
     fg = FakeGen()
     monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token = await _signup_login(c)
-        h = {"Authorization": f"Bearer {token}"}
-        sid = (await c.post("/sessions", json={"project_title": "P"}, headers=h)).json()["id"]
-        r = await c.post(f"/sessions/{sid}/turns?count=3", json={"content": "hello"}, headers=h)
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/turns?count=3", json={"content": "hello"}, headers=sh)
         assert r.status_code == 200, r.text
         # history starts with the seeded greeting + stakeholder turn, then grows by one
         # agent turn per generated question: [greeting, stakeholder] -> +agent1 -> +agent2
@@ -104,13 +106,14 @@ async def test_404_on_wrong_user_session(monkeypatch):
     fg = FakeGen()
     monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token_a = await _signup_login(c, "a@x.com")
-        token_b = await _signup_login(c, "b@x.com")
-        ha = {"Authorization": f"Bearer {token_a}"}
-        hb = {"Authorization": f"Bearer {token_b}"}
-        sid_a = (await c.post("/sessions", json={"project_title": "A"}, headers=ha)).json()["id"]
-        r = await c.post(f"/sessions/{sid_a}/turns", json={"content": "x"}, headers=hb)
+        reh, sh, pid, sid = await _setup_session(c)
+        # Sign up a second user (not a member of this project)
+        await c.post("/auth/signup", json={"email": "other@x.com", "password": "Passw0rd!", "real_name": "Other"})
+        other_tok = (await c.post("/auth/login", json={"email": "other@x.com", "password": "Passw0rd!"})).json()["access_token"]
+        hb = {"Authorization": f"Bearer {other_tok}"}
+        r = await c.post(f"/sessions/{sid}/turns", json={"content": "x"}, headers=hb)
         assert r.status_code == 404
 
 
@@ -126,18 +129,17 @@ async def test_get_turns_returns_history_in_order(monkeypatch):
     fg = FakeGen()
     monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token = await _signup_login(c)
-        h = {"Authorization": f"Bearer {token}"}
-        sid = (await c.post("/sessions", json={"project_title": "P"}, headers=h)).json()["id"]
+        reh, sh, pid, sid = await _setup_session(c)
         post = await c.post(
             f"/sessions/{sid}/turns",
             json={"content": "I want a POS system."},
-            headers=h,
+            headers=sh,
         )
         assert post.status_code == 200, post.text
 
-        r = await c.get(f"/sessions/{sid}/turns", headers=h)
+        r = await c.get(f"/sessions/{sid}/turns", headers=sh)
         assert r.status_code == 200, r.text
         body = r.json()
         # 1 seeded greeting + 1 stakeholder + 5 agent turns (default count) = 7 total
@@ -167,15 +169,29 @@ async def test_get_turns_401_when_unauthenticated():
 
 
 @pytest.mark.asyncio
-async def test_get_turns_404_for_other_user():
+async def test_get_turns_404_for_other_user(monkeypatch):
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token_a = await _signup_login(c, "a@x.com")
-        token_b = await _signup_login(c, "b@x.com")
-        ha = {"Authorization": f"Bearer {token_a}"}
-        hb = {"Authorization": f"Bearer {token_b}"}
-        sid_a = (await c.post("/sessions", json={"project_title": "A"}, headers=ha)).json()["id"]
-        r = await c.get(f"/sessions/{sid_a}/turns", headers=hb)
+        reh, sh, pid, sid = await _setup_session(c)
+        # Second user with no access
+        await c.post("/auth/signup", json={"email": "other2@x.com", "password": "Passw0rd!", "real_name": "O2"})
+        other_tok = (await c.post("/auth/login", json={"email": "other2@x.com", "password": "Passw0rd!"})).json()["access_token"]
+        r = await c.get(f"/sessions/{sid}/turns", headers={"Authorization": f"Bearer {other_tok}"})
         assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_re_can_read_turns_of_owned_project_session(monkeypatch):
+    """RE who owns the project can read turns even though they're not the stakeholder."""
+    monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: FakeGen())
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        await c.post(f"/sessions/{sid}/messages", json={"content": "hi"}, headers=sh)
+        r = await c.get(f"/sessions/{sid}/turns", headers=reh)
+        assert r.status_code == 200
+        assert len(r.json()) >= 2  # greeting + stakeholder turn
 
 
 @pytest.mark.asyncio
@@ -187,16 +203,14 @@ async def test_extractor_persists_requirements(monkeypatch):
     ])
     monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: fx)
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token = await _signup_login(c)
-        h = {"Authorization": f"Bearer {token}"}
-        sid = (await c.post("/sessions", json={"project_title": "POS"}, headers=h)).json()["id"]
-        r = await c.post(f"/sessions/{sid}/turns?count=1", json={"content": "I want card payments."}, headers=h)
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/turns?count=1", json={"content": "I want card payments."}, headers=sh)
         assert r.status_code == 200, r.text
         # extractor was called once with the stakeholder content
         assert fx.calls == 1
         # requirements were persisted
-        from app.db.mongo import get_db
         rows = [d async for d in get_db().requirements.find({"session_id": sid})]
         assert len(rows) == 2
         statements = sorted(d["statement"] for d in rows)
@@ -209,74 +223,69 @@ async def test_extractor_persists_requirements(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_post_message_persists_stakeholder_and_extracts_requirements(monkeypatch):
+    ftg = FakeTitleGen("My Project Title")
     fx = FakeExtractor(items=[{"statement": "Users can log in.", "type": "functional"}])
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: fx)
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: ftg)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token = await _signup_login(c)
-        h = {"Authorization": f"Bearer {token}"}
-        sid = (await c.post("/sessions", json={"project_title": "P"}, headers=h)).json()["id"]
-        r = await c.post(f"/sessions/{sid}/messages", json={"content": "I want auth."}, headers=h)
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/messages", json={"content": "I want auth."}, headers=sh)
         assert r.status_code == 200, r.text
         assert r.json()["stakeholder_turn_id"]
-        # session was created with an explicit title, so it is returned unchanged
-        assert r.json()["session_title"] == "P"
+        # title is auto-generated from first message
+        assert r.json()["session_title"] == "My Project Title"
         # turns persisted: seeded greeting first, then the stakeholder message
-        turns = (await c.get(f"/sessions/{sid}/turns", headers=h)).json()
+        turns = (await c.get(f"/sessions/{sid}/turns", headers=sh)).json()
         assert len(turns) == 2
         assert turns[0]["role"] == "agent"
         assert turns[1]["role"] == "stakeholder"
         assert turns[1]["content"] == "I want auth."
         # requirement was extracted
-        from app.db.mongo import get_db
         reqs = [d async for d in get_db().requirements.find({"session_id": sid})]
         assert len(reqs) == 1
 
 
 @pytest.mark.asyncio
-async def test_first_message_auto_names_placeholder_session(monkeypatch):
+async def test_first_message_auto_names_session(monkeypatch):
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
     ftg = FakeTitleGen("Calendar Task Sync")
     monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: ftg)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token = await _signup_login(c)
-        h = {"Authorization": f"Bearer {token}"}
-        # no title -> placeholder, auto_named False
-        sid = (await c.post("/sessions", json={}, headers=h)).json()["id"]
-        r = await c.post(f"/sessions/{sid}/messages", json={"content": "Sync my todos with Google Calendar."}, headers=h)
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/messages", json={"content": "Sync my todos with Google Calendar."}, headers=sh)
         assert r.status_code == 200, r.text
         assert r.json()["session_title"] == "Calendar Task Sync"
         assert ftg.calls == 1
         # the session is renamed in the listing
-        sessions = (await c.get("/sessions", headers=h)).json()
-        assert sessions[0]["project_title"] == "Calendar Task Sync"
+        sessions = (await c.get("/sessions", headers=sh)).json()
+        assert sessions[0]["title"] == "Calendar Task Sync"
         # a second message does NOT rename again
-        r2 = await c.post(f"/sessions/{sid}/messages", json={"content": "Also remind me."}, headers=h)
+        r2 = await c.post(f"/sessions/{sid}/messages", json={"content": "Also remind me."}, headers=sh)
         assert r2.json()["session_title"] == "Calendar Task Sync"
         assert ftg.calls == 1
 
 
 @pytest.mark.asyncio
-async def test_title_generation_failure_keeps_placeholder(monkeypatch):
+async def test_title_generation_failure_returns_none(monkeypatch):
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
     monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: BoomTitleGen())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token = await _signup_login(c)
-        h = {"Authorization": f"Bearer {token}"}
-        sid = (await c.post("/sessions", json={}, headers=h)).json()["id"]
-        r = await c.post(f"/sessions/{sid}/messages", json={"content": "anything"}, headers=h)
-        # reply still succeeds; title falls back to the placeholder
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/messages", json={"content": "anything"}, headers=sh)
+        # reply still succeeds; title is None when generation fails
         assert r.status_code == 200, r.text
-        assert r.json()["session_title"] == "New conversation"
+        assert r.json()["session_title"] is None
 
 
 @pytest.mark.asyncio
 async def test_post_message_404_other_user(monkeypatch):
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        ta = await _signup_login(c, "a@x.com")
-        tb = await _signup_login(c, "b@x.com")
-        sid = (await c.post("/sessions", json={"project_title": "A"}, headers={"Authorization": f"Bearer {ta}"})).json()["id"]
-        r = await c.post(f"/sessions/{sid}/messages", json={"content": "x"}, headers={"Authorization": f"Bearer {tb}"})
+        reh, sh, pid, sid = await _setup_session(c)
+        await c.post("/auth/signup", json={"email": "other3@x.com", "password": "Passw0rd!", "real_name": "O3"})
+        other_tok = (await c.post("/auth/login", json={"email": "other3@x.com", "password": "Passw0rd!"})).json()["access_token"]
+        r = await c.post(f"/sessions/{sid}/messages", json={"content": "x"}, headers={"Authorization": f"Bearer {other_tok}"})
         assert r.status_code == 404
 
 
@@ -285,14 +294,13 @@ async def test_post_question_generates_one_from_history(monkeypatch):
     fg = FakeGen()
     monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token = await _signup_login(c)
-        h = {"Authorization": f"Bearer {token}"}
-        sid = (await c.post("/sessions", json={"project_title": "P"}, headers=h)).json()["id"]
+        reh, sh, pid, sid = await _setup_session(c)
         # seed a stakeholder turn first
-        await c.post(f"/sessions/{sid}/messages", json={"content": "I want a POS."}, headers=h)
+        await c.post(f"/sessions/{sid}/messages", json={"content": "I want a POS."}, headers=sh)
         # generate one question
-        r = await c.post(f"/sessions/{sid}/questions", headers=h)
+        r = await c.post(f"/sessions/{sid}/questions", headers=sh)
         assert r.status_code == 200, r.text
         q = r.json()
         assert q["content"].startswith("Q")
@@ -304,11 +312,12 @@ async def test_post_question_generates_one_from_history(monkeypatch):
 @pytest.mark.asyncio
 async def test_post_question_404_other_user(monkeypatch):
     monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: FakeGen())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        ta = await _signup_login(c, "a@x.com")
-        tb = await _signup_login(c, "b@x.com")
-        sid = (await c.post("/sessions", json={"project_title": "A"}, headers={"Authorization": f"Bearer {ta}"})).json()["id"]
-        r = await c.post(f"/sessions/{sid}/questions", headers={"Authorization": f"Bearer {tb}"})
+        reh, sh, pid, sid = await _setup_session(c)
+        await c.post("/auth/signup", json={"email": "other4@x.com", "password": "Passw0rd!", "real_name": "O4"})
+        other_tok = (await c.post("/auth/login", json={"email": "other4@x.com", "password": "Passw0rd!"})).json()["access_token"]
+        r = await c.post(f"/sessions/{sid}/questions", headers={"Authorization": f"Bearer {other_tok}"})
         assert r.status_code == 404
 
 
@@ -336,14 +345,13 @@ async def test_requirement_dedup_across_messages(monkeypatch):
             {"statement": "Audit log retained 90 days.", "type": "constraint"},
         ]),
     ])
+    ftg = FakeTitleGen("Dedup Project")
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: next(extractors))
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: ftg)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        token = await _signup_login(c)
-        h = {"Authorization": f"Bearer {token}"}
-        sid = (await c.post("/sessions", json={"project_title": "P"}, headers=h)).json()["id"]
-        await c.post(f"/sessions/{sid}/messages", json={"content": "first"}, headers=h)
-        await c.post(f"/sessions/{sid}/messages", json={"content": "second"}, headers=h)
-        from app.db.mongo import get_db
+        reh, sh, pid, sid = await _setup_session(c)
+        await c.post(f"/sessions/{sid}/messages", json={"content": "first"}, headers=sh)
+        await c.post(f"/sessions/{sid}/messages", json={"content": "second"}, headers=sh)
         reqs = [d async for d in get_db().requirements.find({"session_id": sid})]
         assert len(reqs) == 3, [r["statement"] for r in reqs]
         statements_lower = {r["statement"].lower().rstrip(".") for r in reqs}

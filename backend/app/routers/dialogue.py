@@ -31,14 +31,14 @@ async def _maybe_auto_name(db, session: dict, oid, stakeholder_text: str) -> str
     Returns the resolved title (new or existing). Best-effort: any failure leaves
     the placeholder in place and never blocks the reply.
     """
-    current = session.get("project_title")
+    current = session.get("title")
     if session.get("auto_named"):
         return current
     try:
         title = await _make_title_generator().generate(stakeholder_text)
         await db.sessions.update_one(
             {"_id": oid},
-            {"$set": {"project_title": title, "auto_named": True, "updated_at": datetime.now(timezone.utc)}},
+            {"$set": {"title": title, "auto_named": True, "updated_at": datetime.now(timezone.utc)}},
         )
         return title
     except Exception:
@@ -108,9 +108,15 @@ async def post_turn(
     except Exception as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
 
-    session = await db.sessions.find_one({"_id": oid, "user_id": user_id})
+    session = await db.sessions.find_one({"_id": oid, "stakeholder_id": user_id})
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+
+    # Build AI context: prepend project background to session summary
+    project = await db.projects.find_one({"_id": ObjectId(session["project_id"])})
+    project_context = (project or {}).get("background") or ""
+    base_summary = session.get("summary") or ""
+    summary = (project_context + "\n\n" + base_summary).strip() if project_context else base_summary
 
     now = datetime.now(timezone.utc)
     stakeholder_doc = {
@@ -146,7 +152,6 @@ async def post_turn(
 
     gen = _make_generator()
     phase = session["phase"]
-    summary = session.get("summary") or ""
 
     questions_out: list[QuestionOut] = []
     for _ in range(count):
@@ -180,7 +185,7 @@ async def post_message(
         oid = ObjectId(sid)
     except Exception as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
-    session = await db.sessions.find_one({"_id": oid, "user_id": user_id})
+    session = await db.sessions.find_one({"_id": oid, "stakeholder_id": user_id})
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
 
@@ -219,9 +224,15 @@ async def post_question(
         oid = ObjectId(sid)
     except Exception as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
-    session = await db.sessions.find_one({"_id": oid, "user_id": user_id})
+    session = await db.sessions.find_one({"_id": oid, "stakeholder_id": user_id})
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+
+    # Build AI context: prepend project background to session summary
+    project = await db.projects.find_one({"_id": ObjectId(session["project_id"])})
+    project_context = (project or {}).get("background") or ""
+    base_summary = session.get("summary") or ""
+    summary = (project_context + "\n\n" + base_summary).strip() if project_context else base_summary
 
     history: list[dict] = []
     async for t in db.turns.find({"session_id": sid}).sort("created_at", 1):
@@ -235,7 +246,7 @@ async def post_question(
     try:
         q = await gen.next_question(
             phase=session["phase"],
-            summary=session.get("summary") or "",
+            summary=summary,
             history=history,
         )
     except UpstreamUnavailable as exc:
@@ -267,9 +278,13 @@ async def list_turns(
     session = await db.sessions.find_one({"_id": oid})
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
-    if session.get("user_id") != user_id:
+    if session.get("stakeholder_id") != user_id:
         user = await db.users.find_one({"_id": ObjectId(user_id)})
-        if not user or user.get("role") != "requirements_engineer":
+        is_re = user and user.get("role") == "requirements_engineer"
+        owns_project = is_re and await db.projects.find_one(
+            {"_id": ObjectId(session["project_id"]), "owner_id": user_id}
+        )
+        if not owns_project:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
 
     out: list[TurnOut] = []
