@@ -200,7 +200,7 @@ export default function ProjectDetailPage() {
                           to={`/chat?session=${s.id}`}
                           className="text-sm font-medium text-foreground hover:text-accent hover:underline"
                         >
-                          {s.title || "Untitled interview"}
+                          {s.stakeholder_name || s.stakeholder_email || "Unknown stakeholder"}
                         </Link>
                         <span
                           className={`ml-2 text-xs ${
@@ -210,12 +210,9 @@ export default function ProjectDetailPage() {
                           · {s.status}
                         </span>
                       </div>
-                      <p className="mt-0.5 text-xs text-muted truncate">
-                        {s.stakeholder_name || s.stakeholder_email || "Unknown stakeholder"}
-                        {s.stakeholder_name && s.stakeholder_email && (
-                          <span className="text-muted/70"> · {s.stakeholder_email}</span>
-                        )}
-                      </p>
+                      {s.stakeholder_name && s.stakeholder_email && (
+                        <p className="mt-0.5 text-xs text-muted truncate">{s.stakeholder_email}</p>
+                      )}
                     </div>
                     {s.status !== "completed" && (
                       <button
