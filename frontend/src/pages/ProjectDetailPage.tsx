@@ -22,6 +22,7 @@ export default function ProjectDetailPage() {
   const [lastInvite, setLastInvite] = useState<Invite | null>(null);
   const [inviting, setInviting] = useState(false);
   const [completingId, setCompletingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
 
   async function refresh() {
     try {
@@ -33,13 +34,33 @@ export default function ProjectDetailPage() {
       setProject(p);
       setMembers(m);
       setSessions(s);
+      setLoadError(false);
     } catch {
-      /* silently handled by null check below */
+      setLoadError(true);
     }
   }
 
   useEffect(() => {
-    refresh();
+    let active = true;
+    (async () => {
+      try {
+        const [p, m, s] = await Promise.all([
+          getProject(id),
+          listMembers(id),
+          listProjectSessions(id),
+        ]);
+        if (!active) return;
+        setProject(p);
+        setMembers(m);
+        setSessions(s);
+        setLoadError(false);
+      } catch {
+        if (active) setLoadError(true);
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, [id]);
 
   async function onInvite(e: React.FormEvent) {
@@ -71,7 +92,9 @@ export default function ProjectDetailPage() {
       <div className="grid h-screen grid-rows-[auto_1fr] bg-background">
         <AppHeader title="Project" />
         <div className="grid place-items-center">
-          <p className="text-sm text-muted">Loading…</p>
+          <p className="text-sm text-muted">
+            {loadError ? "Couldn't load this project." : "Loading…"}
+          </p>
         </div>
       </div>
     );
