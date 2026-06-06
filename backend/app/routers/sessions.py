@@ -73,6 +73,16 @@ async def list_project_sessions(pid: str, user: dict = Depends(require_engineer)
     return out
 
 
+@router.get("/sessions/all", response_model=list[SessionOut])
+async def list_all_owned_sessions(user: dict = Depends(require_engineer)):
+    db = get_db()
+    owned = [str(p["_id"]) async for p in db.projects.find({"owner_id": user["_id"]})]
+    out: list[SessionOut] = []
+    async for s in db.sessions.find({"project_id": {"$in": owned}}).sort("created_at", -1):
+        out.append(_to_out(s))
+    return out
+
+
 @router.get("/sessions", response_model=list[SessionOut])
 async def list_my_sessions(user: dict = Depends(current_user_doc)):
     db = get_db()

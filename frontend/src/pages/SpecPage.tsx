@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSpecStore } from "../store/specStore";
-import { listSessions } from "../api/sessions";
+import { listAllSessions } from "../api/sessions";
 import { listAllRequirements, patchRequirement } from "../api/requirements";
 import type { RequirementPatch, SreRequirement } from "../api/requirements";
 import AppHeader from "../components/AppHeader";
@@ -60,7 +60,7 @@ export default function SpecPage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    listSessions().then(setSessions).catch(() => {});
+    listAllSessions().then(setSessions).catch(() => {});
   }, []);
 
   useEffect(() => {

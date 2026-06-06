@@ -29,6 +29,7 @@ export type PostTurnResponse = {
 };
 
 export const listSessions = () => api.get<Session[]>("/sessions").then((r) => r.data);
+export const listAllSessions = () => api.get<Session[]>("/sessions/all").then((r) => r.data);
 export const getTurns = (id: string) => api.get<Turn[]>(`/sessions/${id}/turns`).then((r) => r.data);
 export const postTurn = (id: string, content: string, count = 5) =>
   api.post<PostTurnResponse>(`/sessions/${id}/turns`, { content }, { params: { count } }).then((r) => r.data);
