@@ -4,7 +4,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..db.mongo import get_db
-from ..deps import require_engineer
+from ..deps import current_user_doc, require_engineer
 from ..models.invitation import InvitationStatus
 from ..schemas.project import InviteCreate, InviteOut, MemberOut, ProjectCreate, ProjectOut
 from ..services.invite_service import accept_url_for, new_token
@@ -58,6 +58,20 @@ async def list_projects(user: dict = Depends(require_engineer)):
     out: list[ProjectOut] = []
     async for p in db.projects.find({"owner_id": user["_id"]}).sort("created_at", -1):
         out.append(_project_out(p))
+    return out
+
+
+@router.get("/mine/memberships", response_model=list[ProjectOut])
+async def my_member_projects(user: dict = Depends(current_user_doc)):
+    db = get_db()
+    out: list[ProjectOut] = []
+    async for m in db.memberships.find({"user_id": user["_id"]}):
+        try:
+            p = await db.projects.find_one({"_id": ObjectId(m["project_id"])})
+        except Exception:
+            p = None
+        if p:
+            out.append(_project_out(p))
     return out
 
 
