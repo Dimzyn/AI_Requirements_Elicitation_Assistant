@@ -49,11 +49,14 @@ async def accept_invitation(token: str, body: AcceptRequest):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid password for existing account")
         user_id = str(user["_id"])
     else:
+        real_name = (body.real_name or "").strip()
+        if not real_name:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "name required")
         now = datetime.now(timezone.utc)
         doc = {
             "email": inv["email"],
             "hashed_password": hash_password(body.password),
-            "real_name": (body.real_name or "").strip() or inv["email"].split("@")[0],
+            "real_name": real_name,
             "phone": None,
             "domain_level": "novice",
             "role": "stakeholder",

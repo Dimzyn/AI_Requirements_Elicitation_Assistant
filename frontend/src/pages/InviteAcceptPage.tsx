@@ -63,12 +63,13 @@ export default function InviteAcceptPage() {
       >
         <h1 className="text-lg font-semibold text-foreground">Join "{info.project_title}"</h1>
         <p className="text-sm text-muted">
-          Invitation for {info.email}. Set a password to continue.
+          Invitation for {info.email}. Choose a name and set a password to continue.
         </p>
         <input
           className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground transition placeholder:text-muted/70 focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
-          placeholder="Your name"
+          placeholder="Your name (shown to the requirements engineer)"
           value={realName}
+          required
           onChange={(e) => setRealName(e.target.value)}
         />
         <input

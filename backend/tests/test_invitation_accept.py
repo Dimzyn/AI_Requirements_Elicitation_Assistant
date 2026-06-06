@@ -38,6 +38,30 @@ async def test_view_then_accept_creates_user_and_membership():
 
 
 @pytest.mark.asyncio
+async def test_new_account_requires_name():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        h, pid = await _re_and_project(c)
+        token = (await c.post(f"/projects/{pid}/invitations", json={"email": "s@x.com"}, headers=h)).json()["token"]
+
+        # Missing name -> rejected (so RE never sees an email-prefix placeholder)
+        r = await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!"})
+        assert r.status_code == 400
+        r = await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "   "})
+        assert r.status_code == 400
+
+        # No account or membership should have been created by the rejected attempts
+        db = get_db()
+        assert await db.users.find_one({"email": "s@x.com"}) is None
+        assert await db.memberships.find_one({"project_id": pid}) is None
+
+        # Providing a name succeeds and stores it verbatim
+        r = await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "Stan Lee"})
+        assert r.status_code == 200
+        u = await db.users.find_one({"email": "s@x.com"})
+        assert u["real_name"] == "Stan Lee"
+
+
+@pytest.mark.asyncio
 async def test_accept_twice_is_rejected():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         h, pid = await _re_and_project(c)
