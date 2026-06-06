@@ -4,11 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pymongo import ReturnDocument
 
 from ..db.mongo import get_db
-from ..deps import current_user_id_from_token, current_user_doc
-from ..schemas.session import SessionCreate, SessionOut
-from ..services.title_generator import DEFAULT_TITLE
+from ..deps import current_user_doc, require_engineer, require_stakeholder
+from ..schemas.session import SessionOut
+from .projects import _owned_project_or_404
 
-router = APIRouter(prefix="/sessions", tags=["sessions"])
+router = APIRouter(tags=["sessions"])
 
 GREETING = (
     "Hi! I'm here to help capture what you'd like to build. "
@@ -19,36 +19,43 @@ GREETING = (
 def _to_out(doc: dict) -> SessionOut:
     return SessionOut(
         id=str(doc["_id"]),
-        project_title=doc["project_title"],
+        project_id=doc["project_id"],
+        stakeholder_id=doc["stakeholder_id"],
+        title=doc.get("title"),
         status=doc["status"],
         phase=doc["phase"],
-        user_id=doc.get("user_id"),
         created_at=doc["created_at"].isoformat() if doc.get("created_at") else None,
     )
 
 
-@router.post("", status_code=201, response_model=SessionOut)
-async def create_session(body: SessionCreate, user_id: str = Depends(current_user_id_from_token)):
+async def _is_member(db, project_id: str, user_id: str) -> bool:
+    return bool(await db.memberships.find_one({"project_id": project_id, "user_id": user_id}))
+
+
+@router.post("/projects/{pid}/session", response_model=SessionOut)
+async def open_my_session(pid: str, user: dict = Depends(require_stakeholder)):
     db = get_db()
+    if not await _is_member(db, pid, user["_id"]):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "not a member of this project")
+    existing = await db.sessions.find_one({"project_id": pid, "stakeholder_id": user["_id"]})
+    if existing:
+        return _to_out(existing)
     now = datetime.now(timezone.utc)
-    explicit_title = (body.project_title or "").strip()
     doc = {
-        "user_id": user_id,
-        "project_title": explicit_title or DEFAULT_TITLE,
+        "project_id": pid,
+        "stakeholder_id": user["_id"],
+        "title": None,
         "status": "active",
         "phase": "exploration",
         "summary": None,
-        # When the title was auto-defaulted, the first stakeholder message renames it.
-        "auto_named": bool(explicit_title),
+        "auto_named": False,
         "created_at": now,
         "updated_at": now,
     }
     res = await db.sessions.insert_one(doc)
-    sid = res.inserted_id
-    doc["_id"] = sid
-    # Seed the AI's opening greeting so the conversation never starts on a blank screen.
+    doc["_id"] = res.inserted_id
     await db.turns.insert_one({
-        "session_id": str(sid),
+        "session_id": str(res.inserted_id),
         "role": "agent",
         "content": GREETING,
         "created_at": now,
@@ -56,63 +63,39 @@ async def create_session(body: SessionCreate, user_id: str = Depends(current_use
     return _to_out(doc)
 
 
-@router.get("", response_model=list[SessionOut])
-async def list_sessions(user: dict = Depends(current_user_doc)):
+@router.get("/projects/{pid}/sessions", response_model=list[SessionOut])
+async def list_project_sessions(pid: str, user: dict = Depends(require_engineer)):
     db = get_db()
-    query = {} if user.get("role") == "requirements_engineer" else {"user_id": user["_id"]}
+    await _owned_project_or_404(db, pid, user["_id"])
     out: list[SessionOut] = []
-    async for s in db.sessions.find(query).sort("created_at", -1):
+    async for s in db.sessions.find({"project_id": pid}).sort("created_at", -1):
         out.append(_to_out(s))
     return out
 
 
-@router.post("/{sid}/archive", response_model=SessionOut)
-async def archive_session(sid: str, user_id: str = Depends(current_user_id_from_token)):
+@router.get("/sessions", response_model=list[SessionOut])
+async def list_my_sessions(user: dict = Depends(current_user_doc)):
+    db = get_db()
+    out: list[SessionOut] = []
+    async for s in db.sessions.find({"stakeholder_id": user["_id"]}).sort("created_at", -1):
+        out.append(_to_out(s))
+    return out
+
+
+@router.post("/sessions/{sid}/complete", response_model=SessionOut)
+async def complete_session(sid: str, user: dict = Depends(require_engineer)):
     db = get_db()
     try:
         oid = ObjectId(sid)
     except Exception as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
+    s = await db.sessions.find_one({"_id": oid})
+    if not s:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+    await _owned_project_or_404(db, s["project_id"], user["_id"])
     s = await db.sessions.find_one_and_update(
-        {"_id": oid, "user_id": user_id},
-        {"$set": {"status": "archived", "updated_at": datetime.now(timezone.utc)}},
+        {"_id": oid},
+        {"$set": {"status": "completed", "updated_at": datetime.now(timezone.utc)}},
         return_document=ReturnDocument.AFTER,
     )
-    if not s:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
     return _to_out(s)
-
-
-@router.post("/{sid}/unarchive", response_model=SessionOut)
-async def unarchive_session(sid: str, user_id: str = Depends(current_user_id_from_token)):
-    db = get_db()
-    try:
-        oid = ObjectId(sid)
-    except Exception as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
-    s = await db.sessions.find_one_and_update(
-        {"_id": oid, "user_id": user_id},
-        {"$set": {"status": "active", "updated_at": datetime.now(timezone.utc)}},
-        return_document=ReturnDocument.AFTER,
-    )
-    if not s:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
-    return _to_out(s)
-
-
-@router.delete("/{sid}", status_code=204)
-async def delete_session(sid: str, user_id: str = Depends(current_user_id_from_token)):
-    db = get_db()
-    try:
-        oid = ObjectId(sid)
-    except Exception as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
-    s = await db.sessions.find_one({"_id": oid, "user_id": user_id})
-    if not s:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
-    if s.get("status") != "archived":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "session must be archived before deletion")
-    await db.turns.delete_many({"session_id": sid})
-    await db.requirements.delete_many({"session_id": sid})
-    await db.sessions.delete_one({"_id": oid})
-    return None

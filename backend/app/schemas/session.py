@@ -1,14 +1,13 @@
+from typing import Optional
+
 from pydantic import BaseModel
-
-
-class SessionCreate(BaseModel):
-    project_title: str | None = None
 
 
 class SessionOut(BaseModel):
     id: str
-    project_title: str
+    project_id: str
+    stakeholder_id: str
+    title: Optional[str] = None
     status: str
     phase: str
-    user_id: str | None = None
-    created_at: str | None = None
+    created_at: Optional[str] = None
