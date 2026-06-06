@@ -3,6 +3,7 @@ import LoginPage from "./pages/LoginPage";
 import SignupPage from "./pages/SignupPage";
 import MainPage from "./pages/MainPage";
 import SpecPage from "./pages/SpecPage";
+import InviteAcceptPage from "./pages/InviteAcceptPage";
 import ProtectedRoute from "./components/Auth/ProtectedRoute";
 import { useAuthStore } from "./store/authStore";
 
@@ -18,6 +19,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/invite/:token" element={<InviteAcceptPage />} />
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<RoleRedirect />} />
           <Route path="/chat" element={<MainPage />} />
