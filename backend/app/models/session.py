@@ -12,8 +12,9 @@ class SessionStatus(str, Enum):
 
 class InterviewSession(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
-    user_id: str
-    project_title: str
+    project_id: str
+    stakeholder_id: str
+    title: Optional[str] = None  # conversation label, auto-named from first message
     status: SessionStatus = SessionStatus.ACTIVE
     phase: str = "exploration"  # exploration|deepening|validation
     summary: Optional[str] = None

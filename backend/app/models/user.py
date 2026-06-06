@@ -10,6 +10,8 @@ class User(BaseModel):
     real_name: str
     phone: Optional[str] = None
     domain_level: str = "novice"  # novice|intermediate|expert
+    role: str = "stakeholder"  # stakeholder | requirements_engineer
+    status: str = "active"  # active | invited
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_validator("email")
