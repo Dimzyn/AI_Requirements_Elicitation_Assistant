@@ -370,6 +370,20 @@ async def test_completed_session_rejects_turns(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_completed_session_rejects_questions(monkeypatch):
+    """After RE marks session complete, stakeholder POST /questions returns 409."""
+    monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: FakeGen())
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        complete_r = await c.post(f"/sessions/{sid}/complete", headers=reh)
+        assert complete_r.status_code == 200, complete_r.text
+        r = await c.post(f"/sessions/{sid}/questions", headers=sh)
+        assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
 async def test_requirement_dedup_across_messages(monkeypatch):
     # Two stakeholder turns whose extractions produce overlapping statements.
     # Turn 1 produces {A, B}; turn 2 produces {A (paraphrased), C}.
