@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { viewInvitation, acceptInvitation, type InvitationView } from "../api/invitations";
+import { getMe } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
 
 export default function InviteAcceptPage() {
@@ -30,7 +31,8 @@ export default function InviteAcceptPage() {
     try {
       const access = await acceptInvitation(token, password, realName || undefined);
       setToken(access);
-      setRole("stakeholder");
+      const me = await getMe();
+      setRole(me.role);
       navigate("/", { replace: true });
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } };

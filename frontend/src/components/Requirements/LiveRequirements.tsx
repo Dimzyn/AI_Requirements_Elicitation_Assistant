@@ -1,6 +1,5 @@
-import { useEffect } from "react";
 import { useSessionStore } from "../../store/sessionStore";
-import { getRequirements, getTurns, exportSession } from "../../api/sessions";
+import { exportSession } from "../../api/sessions";
 
 const TYPE_LABEL: Record<string, string> = {
   functional: "⚙ Functional",
@@ -9,23 +8,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export default function LiveRequirements() {
-  const { activeId, requirements, setRequirements, setTurns, sessions } = useSessionStore();
-
-  useEffect(() => {
-    if (!activeId) return;
-    (async () => {
-      try {
-        const [turns, reqs] = await Promise.all([
-          getTurns(activeId),
-          getRequirements(activeId),
-        ]);
-        setTurns(turns);
-        setRequirements(reqs);
-      } catch {
-        /* ignore */
-      }
-    })();
-  }, [activeId]);
+  const { activeId, requirements, sessions } = useSessionStore();
 
   const grouped = requirements.reduce<Record<string, typeof requirements>>((acc, r) => {
     (acc[r.type] ||= []).push(r);

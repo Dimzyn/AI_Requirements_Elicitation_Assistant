@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSessionStore } from "../../store/sessionStore";
-import { postMessage, postQuestion, getRequirements } from "../../api/sessions";
+import { postMessage, postQuestion } from "../../api/sessions";
 import { useAuthStore } from "../../store/authStore";
 import type { Turn } from "../../api/sessions";
 
@@ -20,7 +20,7 @@ function describeError(err: unknown): string {
 }
 
 export default function InputBox() {
-  const { activeId, sessions, setStatus, appendTurns, setRequirements } = useSessionStore();
+  const { activeId, sessions, setStatus, appendTurns } = useSessionStore();
   const role = useAuthStore((s) => s.role);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -92,9 +92,6 @@ export default function InputBox() {
       setBusy(false);
       return;
     }
-
-    // Best-effort: refresh requirements after extraction. Don't block the question loop on this.
-    getRequirements(session_id).then(setRequirements).catch(() => {});
 
     setStatus("thinking");
     const results = await Promise.allSettled(
