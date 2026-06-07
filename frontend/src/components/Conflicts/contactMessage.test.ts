@@ -53,6 +53,18 @@ describe("buildSelfContactMessage", () => {
     expect(msg).toContain("two of your requirements");
     expect(msg).toContain('"Export to PDF."');
     expect(msg).toContain('"Never store documents."');
+    expect(msg).toContain("Why they conflict: Exporting requires temporarily storing the document.");
     expect(msg).toContain("reconcile these?");
+  });
+
+  it("falls back to 'there' when the name is missing", () => {
+    const msg = buildSelfContactMessage({
+      stakeholderName: null,
+      statementA: "A",
+      statementB: "B",
+      explanation: "x",
+      projectTitle: "P",
+    });
+    expect(msg).toContain("Hi there,");
   });
 });
