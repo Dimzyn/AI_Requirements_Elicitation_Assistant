@@ -5,13 +5,69 @@ import {
   updateConflict,
   type Conflict,
 } from "../../api/conflicts";
+import { buildContactMessage, buildSelfContactMessage } from "./contactMessage";
 
-export default function ConflictsPanel({ projectId }: { projectId: string }) {
+type ContactBlock = { name: string; text: string };
+
+function messagesFor(c: Conflict, projectTitle: string): ContactBlock[] {
+  const a = c.requirement_a;
+  const b = c.requirement_b;
+  const sameStakeholder =
+    a.stakeholder != null && b.stakeholder != null && a.stakeholder === b.stakeholder;
+
+  if (sameStakeholder) {
+    return [
+      {
+        name: a.stakeholder ?? "Stakeholder",
+        text: buildSelfContactMessage({
+          stakeholderName: a.stakeholder,
+          statementA: a.statement,
+          statementB: b.statement,
+          explanation: c.explanation,
+          projectTitle,
+        }),
+      },
+    ];
+  }
+
+  return [
+    {
+      name: a.stakeholder ?? "Stakeholder A",
+      text: buildContactMessage({
+        stakeholderName: a.stakeholder,
+        theirStatement: a.statement,
+        otherStatement: b.statement,
+        explanation: c.explanation,
+        projectTitle,
+      }),
+    },
+    {
+      name: b.stakeholder ?? "Stakeholder B",
+      text: buildContactMessage({
+        stakeholderName: b.stakeholder,
+        theirStatement: b.statement,
+        otherStatement: a.statement,
+        explanation: c.explanation,
+        projectTitle,
+      }),
+    },
+  ];
+}
+
+export default function ConflictsPanel({
+  projectId,
+  projectTitle,
+}: {
+  projectId: string;
+  projectTitle: string;
+}) {
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [detecting, setDetecting] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasRun, setHasRun] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -47,6 +103,16 @@ export default function ConflictsPanel({ projectId }: { projectId: string }) {
       setConflicts((prev) => prev.filter((c) => c.id !== id));
     } finally {
       setActingId(null);
+    }
+  }
+
+  async function onCopy(key: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1500);
+    } catch {
+      // clipboard blocked (e.g. insecure context) — leave the text visible for manual copy
     }
   }
 
@@ -91,6 +157,12 @@ export default function ConflictsPanel({ projectId }: { projectId: string }) {
               <p className="text-xs text-muted italic">{c.explanation}</p>
               <div className="flex gap-2">
                 <button
+                  onClick={() => setExpandedId((id) => (id === c.id ? null : c.id))}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-surface-muted"
+                >
+                  {expandedId === c.id ? "Hide messages" : "Contact stakeholders"}
+                </button>
+                <button
                   onClick={() => onAct(c.id, "resolved")}
                   disabled={actingId === c.id}
                   className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-surface-muted disabled:opacity-40"
@@ -105,6 +177,33 @@ export default function ConflictsPanel({ projectId }: { projectId: string }) {
                   Dismiss
                 </button>
               </div>
+
+              {expandedId === c.id && (
+                <div className="space-y-2 border-t border-border pt-2">
+                  {messagesFor(c, projectTitle).map((m, i) => {
+                    const key = `${c.id}-${i}`;
+                    return (
+                      <div key={key} className="rounded-md border border-border bg-surface p-2 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium text-accent">Message to {m.name}</p>
+                          <button
+                            onClick={() => onCopy(key, m.text)}
+                            className="rounded border border-border px-2 py-1 text-xs font-medium text-foreground transition hover:bg-surface-muted"
+                          >
+                            {copiedKey === key ? "Copied" : "Copy"}
+                          </button>
+                        </div>
+                        <textarea
+                          readOnly
+                          value={m.text}
+                          rows={9}
+                          className="w-full resize-none rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </li>
           ))}
         </ul>

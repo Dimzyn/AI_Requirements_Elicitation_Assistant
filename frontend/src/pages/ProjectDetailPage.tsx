@@ -174,7 +174,7 @@ export default function ProjectDetailPage() {
           </section>
 
           {/* Conflicts section */}
-          <ConflictsPanel projectId={id} />
+          <ConflictsPanel projectId={id} projectTitle={project.title} />
 
           {/* Sessions section */}
           <section className="space-y-2">
