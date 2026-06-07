@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   getProject,
@@ -12,6 +12,10 @@ import {
   type ProjectSession,
 } from "../api/projects";
 import AppHeader from "../components/AppHeader";
+import ConflictsPanel from "../components/Conflicts/ConflictsPanel";
+
+// Poll so new interview sessions and status changes appear without a reload.
+const POLL_MS = 6000;
 
 export default function ProjectDetailPage() {
   const { id = "" } = useParams();
@@ -24,7 +28,7 @@ export default function ProjectDetailPage() {
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
       const [p, m, s] = await Promise.all([
         getProject(id),
@@ -38,30 +42,21 @@ export default function ProjectDetailPage() {
     } catch {
       setLoadError(true);
     }
-  }
+  }, [id]);
 
   useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const [p, m, s] = await Promise.all([
-          getProject(id),
-          listMembers(id),
-          listProjectSessions(id),
-        ]);
-        if (!active) return;
-        setProject(p);
-        setMembers(m);
-        setSessions(s);
-        setLoadError(false);
-      } catch {
-        if (active) setLoadError(true);
-      }
+    void (async () => {
+      await refresh();
     })();
-    return () => {
-      active = false;
-    };
-  }, [id]);
+  }, [refresh]);
+
+  // Poll so new interview sessions and status changes appear without a reload.
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (!document.hidden) refresh();
+    }, POLL_MS);
+    return () => clearInterval(intervalId);
+  }, [refresh]);
 
   async function onInvite(e: React.FormEvent) {
     e.preventDefault();
@@ -178,11 +173,22 @@ export default function ProjectDetailPage() {
             )}
           </section>
 
+          {/* Conflicts section */}
+          <ConflictsPanel projectId={id} />
+
           {/* Sessions section */}
           <section className="space-y-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted px-1">
-              Interview sessions ({sessions.length})
-            </h2>
+            <div className="flex items-center justify-between px-1">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">
+                Interview sessions ({sessions.length})
+              </h2>
+              <Link
+                to={`/projects/${id}/spec`}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-surface-muted"
+              >
+                View all requirements
+              </Link>
+            </div>
             {sessions.length === 0 ? (
               <p className="text-sm text-muted py-2 text-center">
                 No sessions yet. Sessions are created when a stakeholder starts a chat.
