@@ -101,6 +101,7 @@ export default function ConflictsPanel({
     try {
       await updateConflict(id, status);
       setConflicts((prev) => prev.filter((c) => c.id !== id));
+      setExpandedId((prev) => (prev === id ? null : prev));
     } finally {
       setActingId(null);
     }
@@ -195,6 +196,7 @@ export default function ConflictsPanel({
                         </div>
                         <textarea
                           readOnly
+                          aria-label={`Message to ${m.name}`}
                           value={m.text}
                           rows={9}
                           className="w-full resize-none rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground"
