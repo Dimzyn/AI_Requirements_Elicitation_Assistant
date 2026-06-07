@@ -17,6 +17,19 @@ describe("buildContactMessage", () => {
     expect(msg).toContain("Why they conflict: Cannot both auto-approve and require sign-off.");
   });
 
+  it("swaps roles correctly for the second stakeholder", () => {
+    // For stakeholder B, their own statement leads and the other's is the conflicting one.
+    const msg = buildContactMessage({
+      stakeholderName: "Bob",
+      theirStatement: "All refunds require manager sign-off.",
+      otherStatement: "Auto-approve all refunds.",
+      explanation: "Cannot both auto-approve and require sign-off.",
+      projectTitle: "Refund System",
+    });
+    expect(msg).toContain('Your requirement: "All refunds require manager sign-off."');
+    expect(msg).toContain('Conflicting requirement: "Auto-approve all refunds."');
+  });
+
   it("falls back to 'there' when the name is missing", () => {
     const msg = buildContactMessage({
       stakeholderName: null,
