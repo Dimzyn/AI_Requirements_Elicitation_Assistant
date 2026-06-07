@@ -29,3 +29,5 @@ async def init_indexes() -> None:
     await db.memberships.create_index([("project_id", 1), ("user_id", 1)], unique=True)
     await db.invitations.create_index("token", unique=True)
     await db.invitations.create_index([("project_id", 1), ("email", 1)])
+    await db.conflicts.create_index([("project_id", 1), ("pair_key", 1)], unique=True)
+    await db.conflicts.create_index([("project_id", 1), ("status", 1)])
