@@ -8,6 +8,8 @@ export type Session = {
   status: string;
   phase: string;
   created_at?: string | null;
+  stakeholder_name?: string | null;
+  stakeholder_email?: string | null;
 };
 export type Turn = {
   id: string;

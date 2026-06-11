@@ -1076,10 +1076,21 @@ from ..schemas.session import SessionOut
 
 router = APIRouter(tags=["sessions"])
 
-GREETING = (
-    "Hi! I'm here to help capture what you'd like to build. "
-    "What's the project or idea you have in mind?"
-)
+def _greeting(real_name: str | None, project_title: str | None) -> str:
+    first = (real_name or "").strip().split(" ")[0]
+    hi = f"Hi {first} 👋" if first else "Hi there 👋"
+    if project_title:
+        lead = (
+            f"You've been brought in to help shape **{project_title}**. "
+            "I'm here to capture what *you* need from it"
+        )
+    else:
+        lead = "Glad you're here. I'm here to capture what *you* need"
+    return (
+        f"{hi} {lead} — the things that'd make your life easier, anything that "
+        "frustrates you today, or ideas you've been sitting on. No need for "
+        "polished answers; just talk and I'll keep up. So — where should we start?"
+    )
 
 
 def _to_out(doc: dict) -> SessionOut:
@@ -1131,10 +1142,11 @@ async def open_my_session(pid: str, user: dict = Depends(require_stakeholder)):
     }
     res = await db.sessions.insert_one(doc)
     doc["_id"] = res.inserted_id
+    project = await db.projects.find_one({"_id": ObjectId(pid)})
     await db.turns.insert_one({
         "session_id": str(res.inserted_id),
         "role": "agent",
-        "content": GREETING,
+        "content": _greeting(user.get("real_name"), project.get("title") if project else None),
         "created_at": now,
     })
     return _to_out(doc)

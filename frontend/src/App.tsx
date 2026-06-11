@@ -28,6 +28,7 @@ export default function App() {
           <Route path="/spec" element={<SpecPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
+          <Route path="/projects/:id/spec" element={<SpecPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

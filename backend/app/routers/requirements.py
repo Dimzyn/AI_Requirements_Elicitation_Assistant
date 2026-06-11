@@ -35,13 +35,23 @@ def _require_sre(user: dict):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "requires requirements_engineer role")
 
 
-async def _owned_session_ids(db, owner_id: str) -> list[str]:
+async def _owned_session_ids(db, owner_id: str, project_id: str | None = None) -> list[str]:
+    if project_id is not None:
+        try:
+            oid = ObjectId(project_id)
+        except Exception:
+            return []
+        owns = await db.projects.find_one({"_id": oid, "owner_id": owner_id})
+        if not owns:
+            return []
+        return [str(s["_id"]) async for s in db.sessions.find({"project_id": project_id})]
     owned_projects = [str(p["_id"]) async for p in db.projects.find({"owner_id": owner_id})]
     return [str(s["_id"]) async for s in db.sessions.find({"project_id": {"$in": owned_projects}})]
 
 
 @router.get("", response_model=list[RequirementOut])
 async def list_all_requirements(
+    project_id: str | None = Query(default=None),
     session_id: str | None = Query(default=None),
     req_status: str | None = Query(default=None, alias="status"),
     req_type: str | None = Query(default=None, alias="type"),
@@ -49,7 +59,9 @@ async def list_all_requirements(
 ):
     _require_sre(user)
     db = get_db()
-    owned_sids = await _owned_session_ids(db, user["_id"])
+    owned_sids = await _owned_session_ids(db, user["_id"], project_id)
+    if not owned_sids:
+        return []
     query: dict = {"session_id": {"$in": owned_sids}}
     if session_id:
         if session_id not in owned_sids:

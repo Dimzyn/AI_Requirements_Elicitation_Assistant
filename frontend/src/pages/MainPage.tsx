@@ -1,13 +1,17 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useSessionStore } from "../store/sessionStore";
 import { useAuthStore } from "../store/authStore";
-import { getTurns, getRequirements } from "../api/sessions";
+import { getTurns, getRequirements, listAllSessions } from "../api/sessions";
 import ProjectSidebar from "../components/Sidebar/ProjectSidebar";
 import ChatPanel from "../components/Dialogue/ChatPanel";
 import InputBox from "../components/Dialogue/InputBox";
 import LiveRequirements from "../components/Requirements/LiveRequirements";
 import AppHeader from "../components/AppHeader";
+
+// How often the RE's read-only interview view polls for the stakeholder's new
+// messages + extracted requirements.
+const POLL_MS = 6000;
 
 export default function MainPage() {
   const [params] = useSearchParams();
@@ -17,32 +21,78 @@ export default function MainPage() {
   const setTurns = useSessionStore((s) => s.setTurns);
   const setRequirements = useSessionStore((s) => s.setRequirements);
   const role = useAuthStore((s) => s.role);
+  const [projectId, setProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     if (sessionParam) setActive(sessionParam);
   }, [sessionParam, setActive]);
 
+  // For the RE, resolve which project this session belongs to so the header can
+  // offer a "Back to project" link.
   useEffect(() => {
-    if (!activeId) return;
+    if (role !== "requirements_engineer" || !activeId) return;
     let active = true;
-    (async () => {
+    listAllSessions()
+      .then((all) => {
+        if (!active) return;
+        const s = all.find((x) => x.id === activeId);
+        if (s) setProjectId(s.project_id);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [role, activeId]);
+
+  const load = useCallback(
+    async (alive: () => boolean) => {
+      if (!activeId) return;
       try {
         const turns = await getTurns(activeId);
-        if (active) setTurns(turns);
+        if (alive()) setTurns(turns);
         if (role === "requirements_engineer") {
           const reqs = await getRequirements(activeId);
-          if (active) setRequirements(reqs);
+          if (alive()) setRequirements(reqs);
         }
       } catch {
         /* ignore */
       }
-    })();
+    },
+    [activeId, role, setTurns, setRequirements]
+  );
+
+  useEffect(() => {
+    let active = true;
+    load(() => active);
     return () => { active = false; };
-  }, [activeId, role, setTurns, setRequirements]);
+  }, [load]);
+
+  // The RE observes the interview read-only, so poll for the stakeholder's new
+  // turns + extracted requirements. Stakeholders are excluded: they post their
+  // own messages with optimistic updates that a refetch would clobber.
+  useEffect(() => {
+    if (role !== "requirements_engineer" || !activeId) return;
+    let active = true;
+    const id = setInterval(() => {
+      if (!document.hidden) load(() => active);
+    }, POLL_MS);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [role, activeId, load]);
 
   return (
     <div className="grid h-screen grid-rows-[auto_1fr] bg-background">
-      <AppHeader title="Probing Generator" />
+      <AppHeader
+        title="Probing Generator"
+        backTo={
+          role === "requirements_engineer" && projectId
+            ? `/projects/${projectId}`
+            : undefined
+        }
+        backLabel="Back to project"
+      />
       {role === "requirements_engineer" ? (
         <div className="grid grid-cols-[248px_1fr_312px] overflow-hidden">
           <ProjectSidebar />

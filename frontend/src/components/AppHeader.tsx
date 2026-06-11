@@ -3,7 +3,15 @@ import { useAuthStore } from "../store/authStore";
 import { useThemeStore } from "../store/themeStore";
 import Button from "./ui/Button";
 
-export default function AppHeader({ title }: { title: string }) {
+export default function AppHeader({
+  title,
+  backTo,
+  backLabel = "Back",
+}: {
+  title: string;
+  backTo?: string;
+  backLabel?: string;
+}) {
   const clear = useAuthStore((s) => s.clear);
   const role = useAuthStore((s) => s.role);
   const theme = useThemeStore((s) => s.theme);
@@ -22,6 +30,15 @@ export default function AppHeader({ title }: { title: string }) {
       <span className="grid h-7 w-7 place-items-center rounded-lg bg-accent text-sm text-accent-foreground shadow-sm">
         ◆
       </span>
+      {backTo && (
+        <button
+          onClick={() => nav(backTo)}
+          title={backLabel}
+          className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-medium text-muted transition hover:bg-surface-muted hover:text-foreground"
+        >
+          ← {backLabel}
+        </button>
+      )}
       <h1 className="font-semibold text-foreground">{title}</h1>
       {roleLabel && (
         <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">

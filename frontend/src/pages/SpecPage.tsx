@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import { useSpecStore } from "../store/specStore";
 import { listAllSessions } from "../api/sessions";
+import { getProject, listProjectSessions } from "../api/projects";
 import { listAllRequirements, patchRequirement } from "../api/requirements";
 import type { RequirementPatch, SreRequirement } from "../api/requirements";
 import AppHeader from "../components/AppHeader";
@@ -40,6 +42,10 @@ const STATUS_TONE: Record<string, BadgeTone> = {
   pending: "neutral",
 };
 
+// How often to poll for new stakeholder activity (sessions + requirements)
+// so the RE sees updates without reloading the browser.
+const POLL_MS = 6000;
+
 export default function SpecPage() {
   const {
     sessions,
@@ -57,19 +63,61 @@ export default function SpecPage() {
     setFilterType,
   } = useSpecStore();
 
+  const { id: projectId } = useParams();
   const [saving, setSaving] = useState(false);
+  const [projectTitle, setProjectTitle] = useState<string | null>(null);
 
-  useEffect(() => {
-    listAllSessions().then(setSessions).catch(() => {});
-  }, []);
+  const loadSessions = useCallback(() => {
+    const req = projectId ? listProjectSessions(projectId) : listAllSessions();
+    req.then((s) => setSessions(s)).catch(() => {});
+  }, [projectId, setSessions]);
 
-  useEffect(() => {
+  const loadRequirements = useCallback(() => {
     const params: Record<string, string> = {};
+    if (projectId) params.project_id = projectId;
     if (filterSessionId) params.session_id = filterSessionId;
     if (filterStatus) params.status = filterStatus;
     if (filterType) params.type = filterType;
     listAllRequirements(params).then(setRequirements).catch(() => {});
-  }, [filterSessionId, filterStatus, filterType]);
+  }, [projectId, filterSessionId, filterStatus, filterType, setRequirements]);
+
+  // Reset the session filter when switching projects so a stale selection from
+  // another project doesn't hide everything.
+  useEffect(() => {
+    setFilterSessionId(null);
+  }, [projectId, setFilterSessionId]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    let active = true;
+    getProject(projectId)
+      .then((p) => {
+        if (active) setProjectTitle(p.title);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
+
+  useEffect(() => {
+    loadRequirements();
+  }, [loadRequirements]);
+
+  // Poll for live updates while the tab is visible. The edit drawer keeps its
+  // own local state, so a background refetch won't clobber an in-progress edit.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.hidden) return;
+      loadSessions();
+      loadRequirements();
+    }, POLL_MS);
+    return () => clearInterval(id);
+  }, [loadSessions, loadRequirements]);
 
   const selected = requirements.find((r) => r.id === selectedId) ?? null;
 
@@ -87,11 +135,25 @@ export default function SpecPage() {
 
   return (
     <div className="grid h-screen grid-rows-[auto_1fr] bg-background">
-      <AppHeader title="Requirements Spec — Curator View" />
+      <AppHeader
+        title={
+          projectId && projectTitle
+            ? `Requirements — ${projectTitle}`
+            : "Requirements Spec — Curator View"
+        }
+      />
 
       <div className="grid grid-cols-[220px_1fr] overflow-hidden">
         {/* Left rail — sessions tree */}
         <aside className="overflow-y-auto border-r border-border bg-surface p-3">
+          {projectId && (
+            <Link
+              to={`/projects/${projectId}`}
+              className="mb-3 inline-flex items-center gap-1 px-1 text-xs text-muted transition hover:text-foreground hover:underline"
+            >
+              ← Back to project
+            </Link>
+          )}
           <h2 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
             Sessions
           </h2>
@@ -105,20 +167,30 @@ export default function SpecPage() {
           >
             All sessions
           </button>
-          {sessions.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setFilterSessionId(s.id)}
-              className={`mb-1 block w-full truncate rounded-lg px-2.5 py-1.5 text-left text-sm transition ${
-                filterSessionId === s.id
-                  ? "bg-accent/10 font-medium text-accent"
-                  : "text-foreground hover:bg-surface-muted"
-              }`}
-              title={s.title ?? undefined}
-            >
-              {s.title ?? s.id}
-            </button>
-          ))}
+          {sessions.map((s) => {
+            const name =
+              s.stakeholder_name || s.stakeholder_email || "Unknown stakeholder";
+            return (
+              <button
+                key={s.id}
+                onClick={() => setFilterSessionId(s.id)}
+                className={`mb-1 block w-full rounded-lg px-2.5 py-1.5 text-left transition ${
+                  filterSessionId === s.id
+                    ? "bg-accent/10 text-accent"
+                    : "text-foreground hover:bg-surface-muted"
+                }`}
+                title={name}
+              >
+                <span
+                  className={`block truncate text-sm ${
+                    filterSessionId === s.id ? "font-medium" : ""
+                  }`}
+                >
+                  {name}
+                </span>
+              </button>
+            );
+          })}
         </aside>
 
         {/* Main content */}

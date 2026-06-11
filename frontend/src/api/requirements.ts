@@ -23,6 +23,7 @@ export type RequirementPatch = {
 };
 
 export const listAllRequirements = (params?: {
+  project_id?: string;
   session_id?: string;
   status?: string;
   type?: string;

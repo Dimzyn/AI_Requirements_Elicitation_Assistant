@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     jwt_ttl_minutes: int = 60
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
+    gemini_fallback_model: str = "gemini-2.5-flash-lite"
     gemini_validator_model: str = "gemini-2.5-flash"
     cors_origins: str = "http://localhost:5173"
 
