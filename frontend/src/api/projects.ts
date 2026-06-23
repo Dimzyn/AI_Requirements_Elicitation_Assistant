@@ -30,6 +30,8 @@ export type ProjectSession = {
   project_id: string;
   stakeholder_id: string;
   title?: string | null;
+  kind?: string;
+  conflict_id?: string | null;
   status: string;
   phase: string;
   stakeholder_finished?: boolean;

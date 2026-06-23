@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   getProject,
@@ -11,6 +11,7 @@ import {
   type Invite,
   type ProjectSession,
 } from "../api/projects";
+import { listConflicts, type Conflict } from "../api/conflicts";
 import AppHeader from "../components/AppHeader";
 import Badge from "../components/ui/Badge";
 import ConflictsPanel from "../components/Conflicts/ConflictsPanel";
@@ -23,6 +24,7 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [sessions, setSessions] = useState<ProjectSession[]>([]);
+  const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [email, setEmail] = useState("");
   const [lastInvite, setLastInvite] = useState<Invite | null>(null);
   const [inviting, setInviting] = useState(false);
@@ -31,19 +33,37 @@ export default function ProjectDetailPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [p, m, s] = await Promise.all([
+      const [p, m, s, c] = await Promise.all([
         getProject(id),
         listMembers(id),
         listProjectSessions(id),
+        listConflicts(id).catch(() => [] as Conflict[]),
       ]);
       setProject(p);
       setMembers(m);
       setSessions(s);
+      setConflicts(c);
       setLoadError(false);
     } catch {
       setLoadError(true);
     }
   }, [id]);
+
+  // Split real interviews from the auto-created conflict-resolution chats, and map
+  // each conflict id to its conflict so a resolution chat can show what it's about.
+  const interviews = useMemo(
+    () => sessions.filter((s) => s.kind !== "conflict_resolution"),
+    [sessions]
+  );
+  const resolutionChats = useMemo(
+    () => sessions.filter((s) => s.kind === "conflict_resolution"),
+    [sessions]
+  );
+  const conflictById = useMemo(() => {
+    const m = new Map<string, Conflict>();
+    for (const c of conflicts) m.set(c.id, c);
+    return m;
+  }, [conflicts]);
 
   useEffect(() => {
     void (async () => {
@@ -177,11 +197,11 @@ export default function ProjectDetailPage() {
           {/* Conflicts section */}
           <ConflictsPanel projectId={id} projectTitle={project.title} />
 
-          {/* Sessions section */}
+          {/* Interview sessions */}
           <section className="space-y-2">
             <div className="flex items-center justify-between px-1">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">
-                Interview sessions ({sessions.length})
+                Interview sessions ({interviews.length})
               </h2>
               <Link
                 to={`/projects/${id}/spec`}
@@ -190,13 +210,13 @@ export default function ProjectDetailPage() {
                 View all requirements
               </Link>
             </div>
-            {sessions.length === 0 ? (
+            {interviews.length === 0 ? (
               <p className="text-sm text-muted py-2 text-center">
                 No sessions yet. Sessions are created when a stakeholder starts a chat.
               </p>
             ) : (
               <ul className="space-y-2">
-                {sessions.map((s) => (
+                {interviews.map((s) => (
                   <li
                     key={s.id}
                     className="flex items-center justify-between rounded-lg border border-border bg-surface px-4 py-3 shadow-card"
@@ -240,6 +260,50 @@ export default function ProjectDetailPage() {
               </ul>
             )}
           </section>
+
+          {/* Conflict-resolution chats — AI-opened, one per stakeholder behind a conflict */}
+          {resolutionChats.length > 0 && (
+            <section className="space-y-2">
+              <h2 className="px-1 text-sm font-semibold uppercase tracking-wider text-muted">
+                Conflict-resolution chats ({resolutionChats.length})
+              </h2>
+              <ul className="space-y-2">
+                {resolutionChats.map((s) => {
+                  const c = s.conflict_id ? conflictById.get(s.conflict_id) : undefined;
+                  const full = c
+                    ? `${c.requirement_a.statement} ⇄ ${c.requirement_b.statement}`
+                    : undefined;
+                  return (
+                    <li
+                      key={s.id}
+                      className="rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 shadow-card"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge tone="warning">⚠ Conflict resolution</Badge>
+                        <Link
+                          to={`/chat?session=${s.id}`}
+                          className="text-sm font-medium text-foreground hover:text-accent hover:underline"
+                        >
+                          {s.stakeholder_name || s.stakeholder_email || "Unknown stakeholder"}
+                        </Link>
+                        <span className="text-xs text-muted">· {s.status}</span>
+                      </div>
+                      <p className="mt-1 truncate text-xs text-muted" title={full}>
+                        {c ? (
+                          <>
+                            Re: <span className="text-foreground">“{c.requirement_a.statement}”</span>{" "}
+                            ⇄ <span className="text-foreground">“{c.requirement_b.statement}”</span>
+                          </>
+                        ) : (
+                          "Resolving a requirement conflict."
+                        )}
+                      </p>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
         </div>
       </div>
     </div>

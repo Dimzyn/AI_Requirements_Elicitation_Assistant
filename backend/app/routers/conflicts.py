@@ -2,6 +2,7 @@ from bson import ObjectId
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from ..db.mongo import get_db
 from ..deps import require_engineer
@@ -137,21 +138,26 @@ async def _create_resolution_session(
     if existing:
         return
     now = datetime.now(timezone.utc)
-    res = await db.sessions.insert_one(
-        {
-            "project_id": project_id,
-            "stakeholder_id": stakeholder_id,
-            "title": "Resolve requirement conflict",
-            "kind": "conflict_resolution",
-            "conflict_id": conflict_id,
-            "status": "active",
-            "phase": "validation",
-            "summary": summary,
-            "auto_named": True,
-            "created_at": now,
-            "updated_at": now,
-        }
-    )
+    try:
+        res = await db.sessions.insert_one(
+            {
+                "project_id": project_id,
+                "stakeholder_id": stakeholder_id,
+                "title": "Resolve requirement conflict",
+                "kind": "conflict_resolution",
+                "conflict_id": conflict_id,
+                "status": "active",
+                "phase": "validation",
+                "summary": summary,
+                "auto_named": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+    except DuplicateKeyError:
+        # A unique session index (or a concurrent detect) rejected the insert. Treat as
+        # already-open rather than 500-ing the whole detection run.
+        return
     await db.turns.insert_one(
         {
             "session_id": str(res.inserted_id),
