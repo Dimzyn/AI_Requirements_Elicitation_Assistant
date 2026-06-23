@@ -69,4 +69,24 @@ describe("sessionStore", () => {
       expect(useSessionStore.getState().turns.map((t) => t.id)).toEqual(["1", "2", "3"]);
     });
   });
+
+  describe("reset", () => {
+    it("wipes sessions, active id, turns, requirements and status", () => {
+      useSessionStore.setState({
+        sessions: [],
+        activeId: "s1",
+        turns: [turn("a"), turn("b")],
+        requirements: [requirement("r")],
+        status: "thinking",
+      });
+
+      useSessionStore.getState().reset();
+
+      const s = useSessionStore.getState();
+      expect(s.activeId).toBeNull();
+      expect(s.turns).toEqual([]);
+      expect(s.requirements).toEqual([]);
+      expect(s.status).toBe("idle");
+    });
+  });
 });

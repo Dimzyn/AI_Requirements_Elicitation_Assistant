@@ -77,6 +77,11 @@ def _jaccard(a: set[str], b: set[str]) -> float:
     return len(a & b) / len(a | b)
 
 
+# Consecutive stakeholder turns with no NEW requirement before the agent suggests
+# wrapping up. The dedup result (an empty doc list) is the saturation signal.
+_SATURATION_THRESHOLD = 3
+
+
 async def _dedup_requirement_docs(db, sid: str, stakeholder_turn_id: str, extracted: list[dict], now) -> list[dict]:
     """Return only the requirement docs whose token-set isn't a near-duplicate of an existing one."""
     existing_tokens: list[set[str]] = []
@@ -101,6 +106,46 @@ async def _dedup_requirement_docs(db, sid: str, stakeholder_turn_id: str, extrac
             "created_at": now,
         })
     return docs
+
+
+async def _extract_and_track_saturation(
+    db, session: dict, sid: str, stakeholder_turn_id: str, content: str, now
+) -> bool:
+    """Extract+dedup+store requirements for an interview turn, and track saturation.
+
+    Returns whether the agent should suggest wrapping up. Conflict-resolution chats
+    clarify rather than mint spec rows, so they skip extraction and never wrap up.
+    A turn that adds a new requirement resets the streak; an empty turn advances it,
+    and once the streak hits the threshold the wrap-up suggestion latches on.
+    """
+    if session.get("kind") == "conflict_resolution":
+        return False
+
+    extractor = _make_extractor()
+    try:
+        extracted = await extractor.extract(content)
+    except Exception:
+        extracted = []
+    docs = (
+        await _dedup_requirement_docs(db, sid, stakeholder_turn_id, extracted, now)
+        if extracted
+        else []
+    )
+    if docs:
+        await db.requirements.insert_many(docs)
+        await db.sessions.update_one(
+            {"_id": session["_id"]},
+            {"$set": {"saturation_streak": 0, "wrap_up_suggested": False}},
+        )
+        return False
+
+    streak = session.get("saturation_streak", 0) + 1
+    suggest = streak >= _SATURATION_THRESHOLD
+    await db.sessions.update_one(
+        {"_id": session["_id"]},
+        {"$set": {"saturation_streak": streak, "wrap_up_suggested": suggest}},
+    )
+    return suggest
 
 
 @router.post("/{sid}/turns", response_model=TurnResponse)
@@ -138,15 +183,9 @@ async def post_turn(
 
     await _maybe_auto_name(db, session, oid, body.content)
 
-    extractor = _make_extractor()
-    try:
-        extracted = await extractor.extract(body.content)
-    except Exception:
-        extracted = []
-    if extracted:
-        docs = await _dedup_requirement_docs(db, sid, stakeholder_turn_id, extracted, now)
-        if docs:
-            await db.requirements.insert_many(docs)
+    wrap_up_suggested = await _extract_and_track_saturation(
+        db, session, sid, stakeholder_turn_id, body.content, now
+    )
 
     history: list[dict] = []
     async for t in db.turns.find({"session_id": sid}).sort("created_at", 1):
@@ -179,7 +218,11 @@ async def post_turn(
         )
         history.append({"role": "agent", "content": q.question, "strategy": q.strategy})
 
-    return TurnResponse(stakeholder_turn_id=stakeholder_turn_id, questions=questions_out)
+    return TurnResponse(
+        stakeholder_turn_id=stakeholder_turn_id,
+        questions=questions_out,
+        wrap_up_suggested=wrap_up_suggested,
+    )
 
 
 @router.post("/{sid}/messages", response_model=MessageResponse)
@@ -213,17 +256,15 @@ async def post_message(
 
     session_title = await _maybe_auto_name(db, session, oid, body.content)
 
-    extractor = _make_extractor()
-    try:
-        extracted = await extractor.extract(body.content)
-    except Exception:
-        extracted = []
-    if extracted:
-        docs = await _dedup_requirement_docs(db, sid, stakeholder_turn_id, extracted, now)
-        if docs:
-            await db.requirements.insert_many(docs)
+    wrap_up_suggested = await _extract_and_track_saturation(
+        db, session, sid, stakeholder_turn_id, body.content, now
+    )
 
-    return MessageResponse(stakeholder_turn_id=stakeholder_turn_id, session_title=session_title)
+    return MessageResponse(
+        stakeholder_turn_id=stakeholder_turn_id,
+        session_title=session_title,
+        wrap_up_suggested=wrap_up_suggested,
+    )
 
 
 @router.post("/{sid}/questions", response_model=QuestionOut)

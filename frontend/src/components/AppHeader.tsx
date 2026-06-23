@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
+import { logout } from "../store/authActions";
 import { useThemeStore } from "../store/themeStore";
 import Button from "./ui/Button";
 
@@ -12,7 +13,6 @@ export default function AppHeader({
   backTo?: string;
   backLabel?: string;
 }) {
-  const clear = useAuthStore((s) => s.clear);
   const role = useAuthStore((s) => s.role);
   const theme = useThemeStore((s) => s.theme);
   const toggle = useThemeStore((s) => s.toggle);
@@ -58,7 +58,7 @@ export default function AppHeader({
         variant="ghost"
         size="sm"
         onClick={() => {
-          clear();
+          logout();
           nav("/login");
         }}
       >

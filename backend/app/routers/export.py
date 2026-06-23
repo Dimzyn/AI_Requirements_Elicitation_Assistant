@@ -1,13 +1,18 @@
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 
 from ..db.mongo import get_db
-from ..deps import current_user_doc
+from ..deps import current_user_doc, require_engineer
 from ..schemas.requirement import RequirementOut
-from ..services.export_service import compile_markdown
+from ..services.export_service import compile_markdown, compile_srs, compile_srs_pdf, srs_to_text
+from .projects import _owned_project_or_404
 
 router = APIRouter(prefix="/sessions", tags=["export"])
+
+# Project-wide SRS export lives under /projects/{pid}/export, so it needs its own
+# router (the session export router above is prefixed with /sessions).
+projects_router = APIRouter(prefix="/projects", tags=["export"])
 
 
 def _to_out_req(r: dict) -> RequirementOut:
@@ -80,3 +85,66 @@ async def list_requirements(
     async for r in db.requirements.find({"session_id": sid}).sort("created_at", 1):
         out.append(_to_out_req(r))
     return out
+
+
+@projects_router.get("/{pid}/export")
+async def export_project_srs(
+    pid: str,
+    format: str = Query(default="md", pattern="^(md|txt|pdf)$"),
+    user: dict = Depends(require_engineer),
+):
+    """Export every non-rejected requirement in a project as an IEEE-830-style SRS."""
+    db = get_db()
+    project = await _owned_project_or_404(db, pid, user["_id"])
+
+    # Map each session to its stakeholder's display name (one users query, no N+1).
+    sessions = [s async for s in db.sessions.find({"project_id": pid})]
+    oids: list[ObjectId] = []
+    for s in sessions:
+        uid = s.get("stakeholder_id")
+        if uid:
+            try:
+                oids.append(ObjectId(uid))
+            except Exception:
+                pass
+    name_by_uid: dict[str, str | None] = {}
+    if oids:
+        async for u in db.users.find({"_id": {"$in": oids}}):
+            name_by_uid[str(u["_id"])] = u.get("real_name")
+    session_to_name = {str(s["_id"]): name_by_uid.get(s.get("stakeholder_id")) for s in sessions}
+
+    reqs: list[dict] = []
+    if session_to_name:
+        async for r in db.requirements.find(
+            {"session_id": {"$in": list(session_to_name.keys())}, "status": {"$ne": "rejected"}}
+        ).sort("created_at", 1):
+            reqs.append(
+                {
+                    "statement": r.get("statement", ""),
+                    "type": r.get("type", "functional"),
+                    "stakeholder": session_to_name.get(r["session_id"]),
+                    "priority": r.get("priority"),
+                    "status": r.get("status"),
+                    "acceptance_criteria": r.get("acceptance_criteria"),
+                }
+            )
+
+    title = project.get("title") or "Untitled Project"
+    background = project.get("background")
+    scope = project.get("scope") or project.get("goals")
+
+    if format == "pdf":
+        pdf_bytes = compile_srs_pdf(
+            project_title=title, project_background=background, project_scope=scope, requirements=reqs
+        )
+        safe_name = "".join(ch if ch.isalnum() else "_" for ch in title).strip("_") or "project"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}_SRS.pdf"'},
+        )
+
+    md = compile_srs(
+        project_title=title, project_background=background, project_scope=scope, requirements=reqs
+    )
+    return PlainTextResponse(srs_to_text(md) if format == "txt" else md)

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { signup } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
+import { resetUserScopedStores } from "../store/authActions";
 
 export default function SignupPage() {
   const [email, setEmail] = useState("");
@@ -22,6 +23,9 @@ export default function SignupPage() {
         real_name: realName,
         phone: phone || undefined,
       });
+      // A fresh account must start clean — clear any prior in-memory state so the
+      // previous user's chat history doesn't show up for the new account.
+      resetUserScopedStores();
       setToken(token);
       nav("/");
     } catch (e) {

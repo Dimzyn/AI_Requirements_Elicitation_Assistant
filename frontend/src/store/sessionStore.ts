@@ -15,23 +15,31 @@ type State = {
   setRequirements: (r: Requirement[]) => void;
   status: Status;
   setStatus: (s: Status) => void;
+  reset: () => void;
+};
+
+const INITIAL = {
+  sessions: [] as Session[],
+  activeId: null as string | null,
+  turns: [] as Turn[],
+  requirements: [] as Requirement[],
+  status: "idle" as Status,
 };
 
 export const useSessionStore = create<State>((set) => ({
-  sessions: [],
+  ...INITIAL,
   setSessions: (sessions) => set({ sessions }),
-  activeId: null,
   setActive: (activeId) =>
     set((s) =>
       s.activeId === activeId
         ? {}
         : { activeId, turns: [], requirements: [], status: "idle" }
     ),
-  turns: [],
   setTurns: (turns) => set({ turns }),
   appendTurns: (t) => set((s) => ({ turns: [...s.turns, ...t] })),
-  requirements: [],
   setRequirements: (requirements) => set({ requirements }),
-  status: "idle",
   setStatus: (status) => set({ status }),
+  // Wipe all session/chat state — called on auth changes so one account's
+  // chat history never persists into the next.
+  reset: () => set({ ...INITIAL }),
 }));

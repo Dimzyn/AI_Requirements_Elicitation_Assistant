@@ -16,23 +16,30 @@ type SpecState = {
   setFilterStatus: (s: string | null) => void;
   filterType: string | null;
   setFilterType: (t: string | null) => void;
+  reset: () => void;
+};
+
+const INITIAL = {
+  sessions: [] as Session[],
+  requirements: [] as SreRequirement[],
+  selectedId: null as string | null,
+  filterSessionId: null as string | null,
+  filterStatus: null as string | null,
+  filterType: null as string | null,
 };
 
 export const useSpecStore = create<SpecState>((set) => ({
-  sessions: [],
+  ...INITIAL,
   setSessions: (sessions) => set({ sessions }),
-  requirements: [],
   setRequirements: (requirements) => set({ requirements }),
   updateRequirement: (updated) =>
     set((s) => ({
       requirements: s.requirements.map((r) => (r.id === updated.id ? updated : r)),
     })),
-  selectedId: null,
   setSelectedId: (selectedId) => set({ selectedId }),
-  filterSessionId: null,
   setFilterSessionId: (filterSessionId) => set({ filterSessionId }),
-  filterStatus: null,
   setFilterStatus: (filterStatus) => set({ filterStatus }),
-  filterType: null,
   setFilterType: (filterType) => set({ filterType }),
+  // Wipe the curator view's data + filters on auth changes.
+  reset: () => set({ ...INITIAL }),
 }));

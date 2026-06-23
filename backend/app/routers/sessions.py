@@ -38,8 +38,11 @@ def _to_out(doc: dict, stakeholder: dict | None = None) -> SessionOut:
         project_id=doc["project_id"],
         stakeholder_id=doc["stakeholder_id"],
         title=doc.get("title"),
+        kind=doc.get("kind", "interview"),
+        conflict_id=doc.get("conflict_id"),
         status=doc["status"],
         phase=doc["phase"],
+        stakeholder_finished=doc.get("stakeholder_finished", False),
         created_at=doc["created_at"].isoformat() if doc.get("created_at") else None,
         stakeholder_name=stakeholder.get("real_name") if stakeholder else None,
         stakeholder_email=stakeholder.get("email") if stakeholder else None,
@@ -69,7 +72,11 @@ async def open_my_session(pid: str, user: dict = Depends(require_stakeholder)):
     db = get_db()
     if not await _is_member(db, pid, user["_id"]):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "not a member of this project")
-    existing = await db.sessions.find_one({"project_id": pid, "stakeholder_id": user["_id"]})
+    # Only the stakeholder's main interview session is unique per project. Exclude
+    # conflict-resolution chats (legacy docs have no `kind`, so they read as interview).
+    existing = await db.sessions.find_one(
+        {"project_id": pid, "stakeholder_id": user["_id"], "kind": {"$ne": "conflict_resolution"}}
+    )
     if existing:
         return _to_out(existing)
     now = datetime.now(timezone.utc)
@@ -77,6 +84,7 @@ async def open_my_session(pid: str, user: dict = Depends(require_stakeholder)):
         "project_id": pid,
         "stakeholder_id": user["_id"],
         "title": None,
+        "kind": "interview",
         "status": "active",
         "phase": "exploration",
         "summary": None,
@@ -141,4 +149,25 @@ async def complete_session(sid: str, user: dict = Depends(require_engineer)):
     )
     if not s:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+    return _to_out(s)
+
+
+@router.post("/sessions/{sid}/finish", response_model=SessionOut)
+async def finish_my_session(sid: str, user: dict = Depends(require_stakeholder)):
+    """Stakeholder signals they're done. Flags the session for RE review without
+    ending it — the RE still confirms completion via complete_session."""
+    db = get_db()
+    try:
+        oid = ObjectId(sid)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found") from exc
+    s = await db.sessions.find_one({"_id": oid, "stakeholder_id": user["_id"]})
+    if not s:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+    now = datetime.now(timezone.utc)
+    s = await db.sessions.find_one_and_update(
+        {"_id": oid},
+        {"$set": {"stakeholder_finished": True, "finished_at": now, "updated_at": now}},
+        return_document=ReturnDocument.AFTER,
+    )
     return _to_out(s)

@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   detectConflicts,
   listConflicts,
   updateConflict,
+  suggestResolution,
   type Conflict,
 } from "../../api/conflicts";
+import { patchRequirement } from "../../api/requirements";
 import { buildContactMessage, buildSelfContactMessage } from "./contactMessage";
+
+type SuggestState = {
+  loading?: boolean;
+  error?: string | null;
+  suggestion?: string;
+  rationale?: string;
+};
 
 type ContactBlock = { name: string; text: string };
 
@@ -68,6 +78,8 @@ export default function ConflictsPanel({
   const [hasRun, setHasRun] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [suggestState, setSuggestState] = useState<Record<string, SuggestState>>({});
+  const [applyingKey, setApplyingKey] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -117,6 +129,47 @@ export default function ConflictsPanel({
     }
   }
 
+  async function onSuggest(c: Conflict) {
+    setSuggestState((prev) => ({ ...prev, [c.id]: { loading: true, error: null } }));
+    try {
+      const res = await suggestResolution(c.id);
+      setSuggestState((prev) => ({
+        ...prev,
+        [c.id]: { loading: false, suggestion: res.suggestion, rationale: res.rationale },
+      }));
+    } catch {
+      setSuggestState((prev) => ({
+        ...prev,
+        [c.id]: {
+          loading: false,
+          error: "Couldn't draft a suggestion. The AI service may be busy — try again.",
+        },
+      }));
+    }
+  }
+
+  // Commit the (possibly edited) reconciled wording to the chosen requirement, then
+  // resolve the conflict. The RE picks which side's statement to overwrite.
+  async function onApply(c: Conflict, requirementId: string) {
+    const draft = suggestState[c.id]?.suggestion?.trim();
+    if (!draft) return;
+    const key = `${c.id}-${requirementId}`;
+    setApplyingKey(key);
+    try {
+      await patchRequirement(requirementId, { statement: draft });
+      await updateConflict(c.id, "resolved");
+      setConflicts((prev) => prev.filter((x) => x.id !== c.id));
+      setExpandedId((prev) => (prev === c.id ? null : prev));
+      setSuggestState((prev) => {
+        const next = { ...prev };
+        delete next[c.id];
+        return next;
+      });
+    } finally {
+      setApplyingKey(null);
+    }
+  }
+
   return (
     <section className="rounded-xl border border-border bg-surface p-4 shadow-card space-y-3">
       <div className="flex items-center justify-between">
@@ -156,12 +209,37 @@ export default function ConflictsPanel({
                 ))}
               </div>
               <p className="text-xs text-muted italic">{c.explanation}</p>
+
+              {c.resolution_sessions.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-border bg-surface px-2 py-1.5 text-xs">
+                  <span className="text-muted">
+                    AI resolution chats opened — review each reply, then mark resolved:
+                  </span>
+                  {c.resolution_sessions.map((rs) => (
+                    <Link
+                      key={rs.id}
+                      to={`/chat?session=${rs.id}`}
+                      className="rounded-md border border-border px-2 py-0.5 font-medium text-accent transition hover:bg-surface-muted"
+                    >
+                      {rs.stakeholder || "Stakeholder"}
+                    </Link>
+                  ))}
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <button
                   onClick={() => setExpandedId((id) => (id === c.id ? null : c.id))}
                   className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-surface-muted"
                 >
                   {expandedId === c.id ? "Hide messages" : "Contact stakeholders"}
+                </button>
+                <button
+                  onClick={() => onSuggest(c)}
+                  disabled={suggestState[c.id]?.loading}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-surface-muted disabled:opacity-40"
+                >
+                  {suggestState[c.id]?.loading ? "Drafting…" : "Suggest reconciled wording"}
                 </button>
                 <button
                   onClick={() => onAct(c.id, "resolved")}
@@ -206,6 +284,62 @@ export default function ConflictsPanel({
                   })}
                 </div>
               )}
+
+              {(() => {
+                const ss = suggestState[c.id];
+                if (!ss || (!ss.loading && !ss.error && ss.suggestion === undefined)) return null;
+                return (
+                  <div className="space-y-2 border-t border-border pt-2">
+                    {ss.loading && (
+                      <p className="text-xs text-muted">Drafting a reconciled requirement…</p>
+                    )}
+                    {ss.error && <p className="text-xs text-danger">{ss.error}</p>}
+                    {ss.suggestion !== undefined && (
+                      <>
+                        <p className="text-xs font-medium text-accent">
+                          Suggested reconciled requirement (editable)
+                        </p>
+                        <textarea
+                          aria-label="Suggested reconciled requirement"
+                          value={ss.suggestion}
+                          onChange={(e) =>
+                            setSuggestState((prev) => ({
+                              ...prev,
+                              [c.id]: { ...prev[c.id], suggestion: e.target.value },
+                            }))
+                          }
+                          rows={3}
+                          className="w-full resize-none rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground"
+                        />
+                        {ss.rationale && <p className="text-xs text-muted italic">{ss.rationale}</p>}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-muted">Apply to:</span>
+                          <button
+                            onClick={() => onApply(c, c.requirement_a.id)}
+                            disabled={applyingKey !== null || !ss.suggestion?.trim()}
+                            className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground transition hover:bg-surface-muted disabled:opacity-40"
+                          >
+                            {applyingKey === `${c.id}-${c.requirement_a.id}`
+                              ? "Applying…"
+                              : `${c.requirement_a.stakeholder || "Stakeholder A"}'s statement`}
+                          </button>
+                          {c.requirement_b.id !== c.requirement_a.id && (
+                            <button
+                              onClick={() => onApply(c, c.requirement_b.id)}
+                              disabled={applyingKey !== null || !ss.suggestion?.trim()}
+                              className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-foreground transition hover:bg-surface-muted disabled:opacity-40"
+                            >
+                              {applyingKey === `${c.id}-${c.requirement_b.id}`
+                                ? "Applying…"
+                                : `${c.requirement_b.stakeholder || "Stakeholder B"}'s statement`}
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
             </li>
           ))}
         </ul>

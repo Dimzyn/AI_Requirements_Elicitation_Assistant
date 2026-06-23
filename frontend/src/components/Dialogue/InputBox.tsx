@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSessionStore } from "../../store/sessionStore";
-import { postMessage, postQuestion } from "../../api/sessions";
+import { postMessage, postQuestion, finishSession } from "../../api/sessions";
 import { useAuthStore } from "../../store/authStore";
 import type { Turn } from "../../api/sessions";
 
@@ -26,6 +26,8 @@ export default function InputBox() {
   const [busy, setBusy] = useState(false);
   const [count, setCount] = useState(DEFAULT_COUNT);
   const [error, setError] = useState<string | null>(null);
+  const [wrapUp, setWrapUp] = useState(false);
+  const [finishing, setFinishing] = useState(false);
 
   if (!activeId) {
     return (
@@ -37,10 +39,12 @@ export default function InputBox() {
 
   const activeSession = sessions.find((s) => s.id === activeId);
 
-  if (activeSession?.status === "completed") {
+  if (activeSession?.status === "completed" || activeSession?.stakeholder_finished) {
     return (
       <div className="border-t border-border bg-surface-muted px-4 py-3 text-center text-xs text-muted">
-        This requirements elicitation has ended. Thank you!
+        {activeSession?.status === "completed"
+          ? "This requirements elicitation has ended. Thank you!"
+          : "You've marked this finished — thank you! Your engineer will review it."}
       </div>
     );
   }
@@ -75,7 +79,10 @@ export default function InputBox() {
 
     setStatus("validating");
     try {
-      const { stakeholder_turn_id, session_title } = await postMessage(session_id, content);
+      const { stakeholder_turn_id, session_title, wrap_up_suggested } = await postMessage(
+        session_id,
+        content
+      );
       useSessionStore.setState((s) => ({
         turns: s.turns.map((t) => (t.id === tempId ? { ...t, id: stakeholder_turn_id } : t)),
         // Reflect the auto-generated name in the sidebar without a refetch.
@@ -83,6 +90,9 @@ export default function InputBox() {
           ? s.sessions.map((se) => (se.id === session_id ? { ...se, title: session_title } : se))
           : s.sessions,
       }));
+      // The backend flags saturation (no new requirement for a few turns running);
+      // surface a gentle wrap-up prompt without forcing the stakeholder to stop.
+      if (wrap_up_suggested) setWrapUp(true);
     } catch (err) {
       // /messages failed — roll back the optimistic bubble and restore the textbox.
       useSessionStore.setState((s) => ({ turns: s.turns.filter((t) => t.id !== tempId) }));
@@ -123,8 +133,49 @@ export default function InputBox() {
     setBusy(false);
   };
 
+  const onFinish = async () => {
+    setFinishing(true);
+    try {
+      await finishSession(session_id);
+      // Locally mark finished so the composer locks immediately (the early-return
+      // guard above renders the thank-you state on the next render).
+      useSessionStore.setState((s) => ({
+        sessions: s.sessions.map((se) =>
+          se.id === session_id ? { ...se, stakeholder_finished: true } : se
+        ),
+      }));
+      setWrapUp(false);
+    } finally {
+      setFinishing(false);
+    }
+  };
+
   return (
     <form onSubmit={onSend} className="border-t border-border bg-surface p-3.5">
+      {wrapUp && (
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-xs text-foreground">
+          <span>
+            It sounds like we've covered a lot — anything else you'd like to add, or shall we wrap up?
+          </span>
+          <div className="flex shrink-0 gap-1.5">
+            <button
+              type="button"
+              onClick={onFinish}
+              disabled={finishing}
+              className="rounded-md bg-accent px-2.5 py-1 font-medium text-accent-foreground transition hover:brightness-110 disabled:opacity-40"
+            >
+              {finishing ? "…" : "I'm done"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setWrapUp(false)}
+              className="rounded-md border border-border px-2.5 py-1 font-medium text-foreground transition hover:bg-surface-muted"
+            >
+              Keep going
+            </button>
+          </div>
+        </div>
+      )}
       {error && (
         <div className="mb-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
           {error}

@@ -12,6 +12,7 @@ import {
   type ProjectSession,
 } from "../api/projects";
 import AppHeader from "../components/AppHeader";
+import Badge from "../components/ui/Badge";
 import ConflictsPanel from "../components/Conflicts/ConflictsPanel";
 
 // Poll so new interview sessions and status changes appear without a reload.
@@ -215,6 +216,11 @@ export default function ProjectDetailPage() {
                         >
                           · {s.status}
                         </span>
+                        {s.stakeholder_finished && s.status !== "completed" && (
+                          <Badge tone="info" className="ml-2">
+                            Ready for review
+                          </Badge>
+                        )}
                       </div>
                       {s.stakeholder_name && s.stakeholder_email && (
                         <p className="mt-0.5 text-xs text-muted truncate">{s.stakeholder_email}</p>

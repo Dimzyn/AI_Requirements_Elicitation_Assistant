@@ -5,8 +5,11 @@ export type Session = {
   project_id: string;
   stakeholder_id: string;
   title?: string | null;
+  kind?: string;
+  conflict_id?: string | null;
   status: string;
   phase: string;
+  stakeholder_finished?: boolean;
   created_at?: string | null;
   stakeholder_name?: string | null;
   stakeholder_email?: string | null;
@@ -37,11 +40,14 @@ export const postTurn = (id: string, content: string, count = 5) =>
   api.post<PostTurnResponse>(`/sessions/${id}/turns`, { content }, { params: { count } }).then((r) => r.data);
 export const postMessage = (id: string, content: string) =>
   api
-    .post<{ stakeholder_turn_id: string; session_title?: string | null }>(
+    .post<{ stakeholder_turn_id: string; session_title?: string | null; wrap_up_suggested?: boolean }>(
       `/sessions/${id}/messages`,
       { content }
     )
     .then((r) => r.data);
+
+export const finishSession = (id: string) =>
+  api.post<Session>(`/sessions/${id}/finish`).then((r) => r.data);
 export const postQuestion = (id: string) =>
   api.post<{ id: string; content: string; strategy: string }>(`/sessions/${id}/questions`).then((r) => r.data);
 export const getRequirements = (id: string) =>

@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useSpecStore } from "../store/specStore";
 import { listAllSessions } from "../api/sessions";
-import { getProject, listProjectSessions } from "../api/projects";
+import { getProject, listProjectSessions, exportProjectSrs } from "../api/projects";
 import { listAllRequirements, patchRequirement } from "../api/requirements";
 import type { RequirementPatch, SreRequirement } from "../api/requirements";
+import { listConflicts, type Conflict } from "../api/conflicts";
+import { conflictsByRequirementId } from "../components/Conflicts/conflictMap";
 import AppHeader from "../components/AppHeader";
 import Badge, { type BadgeTone } from "../components/ui/Badge";
 
@@ -66,11 +68,24 @@ export default function SpecPage() {
   const { id: projectId } = useParams();
   const [saving, setSaving] = useState(false);
   const [projectTitle, setProjectTitle] = useState<string | null>(null);
+  const [conflicts, setConflicts] = useState<Conflict[]>([]);
 
   const loadSessions = useCallback(() => {
     const req = projectId ? listProjectSessions(projectId) : listAllSessions();
     req.then((s) => setSessions(s)).catch(() => {});
   }, [projectId, setSessions]);
+
+  // Conflicts are project-scoped, so the global curator view (no project) has none.
+  const loadConflicts = useCallback(() => {
+    if (!projectId) {
+      setConflicts([]);
+      return;
+    }
+    listConflicts(projectId, "open").then(setConflicts).catch(() => {});
+  }, [projectId]);
+
+  // Map every conflicted requirement id to its conflict so a row can flag itself.
+  const conflictByReqId = useMemo(() => conflictsByRequirementId(conflicts), [conflicts]);
 
   const loadRequirements = useCallback(() => {
     const params: Record<string, string> = {};
@@ -108,6 +123,10 @@ export default function SpecPage() {
     loadRequirements();
   }, [loadRequirements]);
 
+  useEffect(() => {
+    loadConflicts();
+  }, [loadConflicts]);
+
   // Poll for live updates while the tab is visible. The edit drawer keeps its
   // own local state, so a background refetch won't clobber an in-progress edit.
   useEffect(() => {
@@ -115,11 +134,26 @@ export default function SpecPage() {
       if (document.hidden) return;
       loadSessions();
       loadRequirements();
+      loadConflicts();
     }, POLL_MS);
     return () => clearInterval(id);
-  }, [loadSessions, loadRequirements]);
+  }, [loadSessions, loadRequirements, loadConflicts]);
 
   const selected = requirements.find((r) => r.id === selectedId) ?? null;
+
+  const onExportSrs = async (format: "md" | "txt" | "pdf") => {
+    if (!projectId) return;
+    const blob = await exportProjectSrs(projectId, format);
+    const base = (projectTitle ?? "requirements").replace(/\s+/g, "_");
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${base}_SRS.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
 
   const onSave = async (patch: RequirementPatch) => {
     if (!selected) return;
@@ -226,7 +260,27 @@ export default function SpecPage() {
                 ))}
               </select>
             </label>
-            <span className="ml-auto text-muted">{requirements.length} requirements</span>
+            <div className="ml-auto flex items-center gap-3">
+              <span className="text-muted">{requirements.length} requirements</span>
+              {projectId && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => onExportSrs("pdf")}
+                    title="Download the Software Requirements Specification as a PDF"
+                    className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground shadow-sm transition hover:brightness-110"
+                  >
+                    ⬇ Export SRS (PDF)
+                  </button>
+                  <button
+                    onClick={() => onExportSrs("md")}
+                    title="Download as editable Markdown"
+                    className="rounded-md border border-border px-2 py-1.5 text-xs text-muted transition hover:bg-surface-muted hover:text-foreground"
+                  >
+                    .md
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -241,16 +295,36 @@ export default function SpecPage() {
                 </tr>
               </thead>
               <tbody>
-                {requirements.map((r, i) => (
+                {requirements.map((r, i) => {
+                  const conflict = conflictByReqId.get(r.id);
+                  return (
                   <tr
                     key={r.id}
                     onClick={() => setSelectedId(r.id)}
                     className={`cursor-pointer border-b border-border transition ${
-                      selectedId === r.id ? "bg-accent/10" : "hover:bg-surface-muted"
+                      selectedId === r.id
+                        ? "bg-accent/10"
+                        : conflict
+                        ? "bg-warning/10 hover:bg-warning/15"
+                        : "hover:bg-surface-muted"
                     }`}
                   >
                     <td className="px-3 py-2 text-muted">{i + 1}</td>
-                    <td className="px-3 py-2 text-foreground">{r.statement}</td>
+                    <td className="px-3 py-2 text-foreground">
+                      <div className="flex items-center gap-2">
+                        <span>{r.statement}</span>
+                        {conflict && projectId && (
+                          <Link
+                            to={`/projects/${projectId}`}
+                            onClick={(e) => e.stopPropagation()}
+                            title={conflict.explanation}
+                            className="shrink-0"
+                          >
+                            <Badge tone="warning">⚠ Conflict</Badge>
+                          </Link>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-3 py-2 text-foreground">{TYPE_LABEL[r.type] ?? r.type}</td>
                     <td className="px-3 py-2 text-foreground">
                       {r.priority ? (PRIORITY_LABEL[r.priority] ?? r.priority) : "—"}
@@ -261,7 +335,8 @@ export default function SpecPage() {
                       </Badge>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             {requirements.length === 0 && (

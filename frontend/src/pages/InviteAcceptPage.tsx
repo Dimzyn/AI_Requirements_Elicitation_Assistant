@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { viewInvitation, acceptInvitation, type InvitationView } from "../api/invitations";
 import { getMe } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
+import { resetUserScopedStores } from "../store/authActions";
 
 export default function InviteAcceptPage() {
   const { token = "" } = useParams();
@@ -30,6 +31,9 @@ export default function InviteAcceptPage() {
     setError(null);
     try {
       const access = await acceptInvitation(token, password, realName || undefined);
+      // Joining as a new stakeholder must start clean — clear any prior account's
+      // in-memory chat/requirements left over from this browser tab.
+      resetUserScopedStores();
       setToken(access);
       const me = await getMe();
       setRole(me.role);

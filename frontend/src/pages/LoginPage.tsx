@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { login } from "../api/auth";
 import { useAuthStore } from "../store/authStore";
+import { resetUserScopedStores } from "../store/authActions";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -15,6 +16,9 @@ export default function LoginPage() {
     setErr(null);
     try {
       const token = await login({ email, password });
+      // Drop any prior account's in-memory chat/requirements before adopting the
+      // new identity, so history can't bleed across accounts in the same tab.
+      resetUserScopedStores();
       setToken(token);
       nav("/");
     } catch (e) {

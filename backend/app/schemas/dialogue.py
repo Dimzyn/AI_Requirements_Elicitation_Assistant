@@ -16,11 +16,13 @@ class QuestionOut(BaseModel):
 class TurnResponse(BaseModel):
     stakeholder_turn_id: str
     questions: List[QuestionOut]
+    wrap_up_suggested: bool = False
 
 
 class MessageResponse(BaseModel):
     stakeholder_turn_id: str
     session_title: str | None = None
+    wrap_up_suggested: bool = False
 
 
 class TurnOut(BaseModel):

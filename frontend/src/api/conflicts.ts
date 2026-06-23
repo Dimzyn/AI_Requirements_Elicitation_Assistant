@@ -6,6 +6,11 @@ export type RequirementRef = {
   stakeholder: string | null;
 };
 
+export type ResolutionSessionRef = {
+  id: string;
+  stakeholder: string | null;
+};
+
 export type Conflict = {
   id: string;
   project_id: string;
@@ -13,6 +18,7 @@ export type Conflict = {
   explanation: string;
   requirement_a: RequirementRef;
   requirement_b: RequirementRef;
+  resolution_sessions: ResolutionSessionRef[];
   detected_at: string;
 };
 
@@ -26,3 +32,11 @@ export const listConflicts = (projectId: string, status?: string) =>
 
 export const updateConflict = (id: string, status: "resolved" | "dismissed") =>
   api.patch<Conflict>(`/conflicts/${id}`, { status }).then((r) => r.data);
+
+export type ResolutionSuggestion = {
+  suggestion: string;
+  rationale: string;
+};
+
+export const suggestResolution = (conflictId: string) =>
+  api.post<ResolutionSuggestion>(`/conflicts/${conflictId}/suggest`).then((r) => r.data);

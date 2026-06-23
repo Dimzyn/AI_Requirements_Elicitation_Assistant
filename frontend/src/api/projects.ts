@@ -32,6 +32,7 @@ export type ProjectSession = {
   title?: string | null;
   status: string;
   phase: string;
+  stakeholder_finished?: boolean;
   created_at?: string | null;
   stakeholder_name?: string | null;
   stakeholder_email?: string | null;
@@ -51,3 +52,7 @@ export const completeSession = (sid: string) =>
   api.post<ProjectSession>(`/sessions/${sid}/complete`).then((r) => r.data);
 export const myMemberProjects = () =>
   api.get<Project[]>("/projects/mine/memberships").then((r) => r.data);
+export const exportProjectSrs = (pid: string, format: "md" | "txt" | "pdf" = "md") =>
+  api
+    .get(`/projects/${pid}/export`, { params: { format }, responseType: "blob" })
+    .then((r) => r.data as Blob);
