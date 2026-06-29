@@ -8,6 +8,7 @@ import ChatPanel from "../components/Dialogue/ChatPanel";
 import InputBox from "../components/Dialogue/InputBox";
 import LiveRequirements from "../components/Requirements/LiveRequirements";
 import AppHeader from "../components/AppHeader";
+import ResolutionVoteCard from "../components/Dialogue/ResolutionVoteCard";
 
 // How often the RE's read-only interview view polls for the stakeholder's new
 // messages + extracted requirements.
@@ -107,6 +108,7 @@ export default function MainPage() {
           <ProjectSidebar />
           <main className="flex flex-col overflow-hidden bg-surface-muted">
             <ChatPanel />
+            {activeId && <ResolutionVoteCard sessionId={activeId} />}
             <InputBox />
           </main>
         </div>
