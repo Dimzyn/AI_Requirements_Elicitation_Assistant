@@ -5,9 +5,11 @@ import {
   listConflicts,
   updateConflict,
   suggestResolution,
+  proposeResolution,
+  applyResolution,
   type Conflict,
 } from "../../api/conflicts";
-import { patchRequirement } from "../../api/requirements";
+import { voteSummary } from "./voteSummary";
 import { buildContactMessage, buildSelfContactMessage } from "./contactMessage";
 
 type SuggestState = {
@@ -80,6 +82,7 @@ export default function ConflictsPanel({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [suggestState, setSuggestState] = useState<Record<string, SuggestState>>({});
   const [applyingKey, setApplyingKey] = useState<string | null>(null);
+  const [proposingId, setProposingId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -148,16 +151,13 @@ export default function ConflictsPanel({
     }
   }
 
-  // Commit the (possibly edited) reconciled wording to the chosen requirement, then
-  // resolve the conflict. The RE picks which side's statement to overwrite.
   async function onApply(c: Conflict, requirementId: string) {
     const draft = suggestState[c.id]?.suggestion?.trim();
     if (!draft) return;
     const key = `${c.id}-${requirementId}`;
     setApplyingKey(key);
     try {
-      await patchRequirement(requirementId, { statement: draft });
-      await updateConflict(c.id, "resolved");
+      await applyResolution(c.id, requirementId, draft);
       setConflicts((prev) => prev.filter((x) => x.id !== c.id));
       setExpandedId((prev) => (prev === c.id ? null : prev));
       setSuggestState((prev) => {
@@ -167,6 +167,19 @@ export default function ConflictsPanel({
       });
     } finally {
       setApplyingKey(null);
+    }
+  }
+
+  // Publish the (edited) reconciled wording to the stakeholders' chats for voting.
+  async function onPropose(c: Conflict) {
+    const draft = suggestState[c.id]?.suggestion?.trim();
+    if (!draft) return;
+    setProposingId(c.id);
+    try {
+      const updated = await proposeResolution(c.id, draft, suggestState[c.id]?.rationale ?? null);
+      setConflicts((prev) => prev.map((x) => (x.id === c.id ? updated : x)));
+    } finally {
+      setProposingId(null);
     }
   }
 
@@ -223,6 +236,23 @@ export default function ConflictsPanel({
                     >
                       {rs.stakeholder || "Stakeholder"}
                     </Link>
+                  ))}
+                </div>
+              )}
+
+              {c.proposal && (
+                <div className="rounded-md border border-dashed border-border bg-surface px-2 py-1.5 text-xs space-y-1">
+                  <p className="text-muted">
+                    Sent to stakeholders:{" "}
+                    <span className="text-foreground">{c.proposal.statement}</span>
+                  </p>
+                  <p className="text-muted">{voteSummary(c.votes)}</p>
+                  {c.votes.map((v, i) => (
+                    <p key={i} className="text-foreground">
+                      {v.stakeholder ?? "Stakeholder"}:{" "}
+                      {v.choice === "accept" ? "accepted" : "requested changes"}
+                      {v.comment ? ` — "${v.comment}"` : ""}
+                    </p>
                   ))}
                 </div>
               )}
@@ -313,6 +343,13 @@ export default function ConflictsPanel({
                         />
                         {ss.rationale && <p className="text-xs text-muted italic">{ss.rationale}</p>}
                         <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() => onPropose(c)}
+                            disabled={proposingId === c.id || !ss.suggestion?.trim()}
+                            className="rounded-md bg-accent px-2.5 py-1 text-xs font-semibold text-accent-foreground transition hover:brightness-110 disabled:opacity-40"
+                          >
+                            {proposingId === c.id ? "Sending…" : "Send to stakeholders"}
+                          </button>
                           <span className="text-xs text-muted">Apply to:</span>
                           <button
                             onClick={() => onApply(c, c.requirement_a.id)}
