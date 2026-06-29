@@ -483,7 +483,7 @@ async def suggest_resolution(cid: str, user: dict = Depends(require_engineer)):
 @router.post("/conflicts/{cid}/apply", response_model=ApplyOut)
 async def apply_resolution(cid: str, body: ApplyIn, user: dict = Depends(require_engineer)):
     """Commit the reconciled wording: write it to the surviving requirement, reject
-    the counterpart, and resolve the conflict — atomically, in one RE action."""
+    the counterpart, and resolve the conflict in one RE action."""
     db = get_db()
     try:
         oid = ObjectId(cid)
@@ -517,6 +517,8 @@ async def apply_resolution(cid: str, body: ApplyIn, user: dict = Depends(require
         raise HTTPException(status.HTTP_404_NOT_FOUND, "conflict references a removed requirement")
 
     now = datetime.now(timezone.utc)
+    # Best-effort sequential writes (single-mongo deployment), not a multi-document
+    # transaction: surviving statement, then reject counterpart, then resolve conflict.
     await db.requirements.update_one(
         {"_id": ObjectId(surviving)},
         {"$set": {"statement": statement, "edited_by": user["_id"], "edited_at": now}},
@@ -578,7 +580,7 @@ async def vote_resolution(sid: str, body: VoteIn, user: dict = Depends(require_s
     if body.choice not in _VALID_VOTE_CHOICES:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            f"choice must be one of {_VALID_VOTE_CHOICES}",
+            f"choice must be one of {sorted(_VALID_VOTE_CHOICES)}",
         )
     try:
         conflict = await db.conflicts.find_one({"_id": ObjectId(session["conflict_id"])})

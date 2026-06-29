@@ -8,6 +8,7 @@ export default function ResolutionVoteCard({ sessionId }: { sessionId: string })
   const [card, setCard] = useState<ResolutionCard | null>(null);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -27,10 +28,13 @@ export default function ResolutionVoteCard({ sessionId }: { sessionId: string })
   if (!card || !card.proposal) return null;
 
   async function vote(choice: "accept" | "request_changes") {
+    setError(null);
     setBusy(true);
     try {
       const updated = await voteResolution(sessionId, choice, comment || undefined);
       setCard(updated);
+    } catch {
+      setError("Couldn't record your vote — please try again.");
     } finally {
       setBusy(false);
     }
@@ -48,6 +52,7 @@ export default function ResolutionVoteCard({ sessionId }: { sessionId: string })
         rows={2}
         className="w-full resize-none rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground"
       />
+      {error && <p className="text-xs text-danger">{error}</p>}
       <div className="flex items-center gap-2">
         <button
           onClick={() => vote("accept")}
