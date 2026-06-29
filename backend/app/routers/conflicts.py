@@ -5,7 +5,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from ..db.mongo import get_db
-from ..deps import require_engineer
+from ..deps import require_engineer, require_stakeholder
 from ..schemas.conflict import (
     ApplyIn,
     ApplyOut,
@@ -14,8 +14,10 @@ from ..schemas.conflict import (
     ProposeIn,
     ProposalOut,
     RequirementRef,
+    ResolutionCardOut,
     ResolutionSessionRef,
     ResolutionSuggestion,
+    VoteIn,
     VoteOut,
 )
 from ..services.conflict_detector import ConflictDetector
@@ -30,6 +32,7 @@ from ..services.resolution_suggester import ResolutionSuggester
 router = APIRouter(tags=["conflicts"])
 
 _VALID_CONFLICT_STATUSES = {"resolved", "dismissed"}
+_VALID_VOTE_CHOICES = {"accept", "request_changes"}
 
 
 def _make_detector() -> ConflictDetector:
@@ -112,6 +115,17 @@ async def _resolution_refs(db, conflict_id: str, session_names: dict) -> list[Re
             ResolutionSessionRef(id=str(s["_id"]), stakeholder=session_names.get(str(s["_id"])))
         )
     return refs
+
+
+async def _owned_resolution_session(db, sid: str, user_id: str) -> dict | None:
+    """The stakeholder's own conflict-resolution session, or None."""
+    try:
+        oid = ObjectId(sid)
+    except Exception:
+        return None
+    return await db.sessions.find_one(
+        {"_id": oid, "stakeholder_id": user_id, "kind": "conflict_resolution"}
+    )
 
 
 async def _conflict_to_out(db, doc: dict, session_names: dict) -> ConflictOut | None:
@@ -552,3 +566,58 @@ async def propose_resolution(cid: str, body: ProposeIn, user: dict = Depends(req
     if out is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "conflict references a removed requirement")
     return out
+
+
+@router.post("/sessions/{sid}/vote", response_model=ResolutionCardOut)
+async def vote_resolution(sid: str, body: VoteIn, user: dict = Depends(require_stakeholder)):
+    """Record this stakeholder's advisory vote on the conflict's current proposal."""
+    db = get_db()
+    session = await _owned_resolution_session(db, sid, user["_id"])
+    if not session:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+    if body.choice not in _VALID_VOTE_CHOICES:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"choice must be one of {_VALID_VOTE_CHOICES}",
+        )
+    try:
+        conflict = await db.conflicts.find_one({"_id": ObjectId(session["conflict_id"])})
+    except Exception:
+        conflict = None
+    if not conflict:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "conflict not found")
+    proposal = conflict.get("proposal")
+    if not proposal:
+        raise HTTPException(status.HTTP_409_CONFLICT, "no proposal to vote on yet")
+
+    now = datetime.now(timezone.utc)
+    vote = {"choice": body.choice, "comment": body.comment or None, "voted_at": now}
+    await db.conflicts.update_one(
+        {"_id": conflict["_id"]},
+        {"$set": {f"votes.{user['_id']}": vote, "updated_at": now}},
+    )
+    return ResolutionCardOut(
+        proposal=ProposalOut(**proposal),
+        my_vote=VoteOut(stakeholder=None, **vote),
+    )
+
+
+@router.get("/sessions/{sid}/resolution", response_model=ResolutionCardOut)
+async def get_resolution_card(sid: str, user: dict = Depends(require_stakeholder)):
+    """Proposal + this stakeholder's current vote, for rendering the in-chat vote card."""
+    db = get_db()
+    session = await _owned_resolution_session(db, sid, user["_id"])
+    if not session:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
+    try:
+        conflict = await db.conflicts.find_one({"_id": ObjectId(session["conflict_id"])})
+    except Exception:
+        conflict = None
+    if not conflict:
+        return ResolutionCardOut()
+    proposal = conflict.get("proposal")
+    mine = (conflict.get("votes") or {}).get(user["_id"])
+    return ResolutionCardOut(
+        proposal=ProposalOut(**proposal) if proposal else None,
+        my_vote=VoteOut(stakeholder=None, **mine) if mine else None,
+    )

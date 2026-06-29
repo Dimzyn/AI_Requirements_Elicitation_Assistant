@@ -366,3 +366,56 @@ async def test_propose_clears_existing_votes(monkeypatch):
         await c.post(f"/conflicts/{cid}/propose", json={"statement": "New wording."}, headers=reh)
         conf = await get_db().conflicts.find_one({"_id": ObjectId(cid)})
         assert conf.get("votes", {}) == {}
+
+
+async def _resolution_sid(cid):
+    rs = await get_db().sessions.find_one({"conflict_id": cid, "kind": "conflict_resolution"})
+    return str(rs["_id"])
+
+
+@pytest.mark.asyncio
+async def test_vote_flow_records_and_surfaces(monkeypatch):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, cid, _, _ = await _detect_one_conflict(
+            c, monkeypatch, re_email="re_v1@x.com", sh_email="sh_v1@x.com"
+        )
+        rsid = await _resolution_sid(cid)
+        # voting before a proposal exists is a 409
+        pre = await c.post(f"/sessions/{rsid}/vote", json={"choice": "accept"}, headers=sh)
+        assert pre.status_code == 409, pre.text
+        # RE proposes, then the stakeholder accepts
+        await c.post(f"/conflicts/{cid}/propose", json={"statement": "Compromise wording."}, headers=reh)
+        r = await c.post(f"/sessions/{rsid}/vote", json={"choice": "accept"}, headers=sh)
+        assert r.status_code == 200, r.text
+        assert r.json()["my_vote"]["choice"] == "accept"
+        # the RE's conflict list now shows the vote with the stakeholder name
+        listed = (await c.get(f"/projects/{pid}/conflicts", headers=reh)).json()
+        assert listed[0]["votes"][0]["choice"] == "accept"
+        assert listed[0]["votes"][0]["stakeholder"] == "Alice"
+        # the resolution card echoes proposal + my_vote
+        card = (await c.get(f"/sessions/{rsid}/resolution", headers=sh)).json()
+        assert card["proposal"]["statement"] == "Compromise wording."
+        assert card["my_vote"]["choice"] == "accept"
+
+
+@pytest.mark.asyncio
+async def test_vote_overwrites_and_validates_choice(monkeypatch):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, cid, _, _ = await _detect_one_conflict(
+            c, monkeypatch, re_email="re_v2@x.com", sh_email="sh_v2@x.com"
+        )
+        rsid = await _resolution_sid(cid)
+        await c.post(f"/conflicts/{cid}/propose", json={"statement": "W."}, headers=reh)
+        await c.post(f"/sessions/{rsid}/vote", json={"choice": "accept"}, headers=sh)
+        # overwrite with request_changes
+        await c.post(
+            f"/sessions/{rsid}/vote",
+            json={"choice": "request_changes", "comment": "Too strict."},
+            headers=sh,
+        )
+        card = (await c.get(f"/sessions/{rsid}/resolution", headers=sh)).json()
+        assert card["my_vote"]["choice"] == "request_changes"
+        assert card["my_vote"]["comment"] == "Too strict."
+        # bad choice rejected
+        bad = await c.post(f"/sessions/{rsid}/vote", json={"choice": "maybe"}, headers=sh)
+        assert bad.status_code == 422, bad.text

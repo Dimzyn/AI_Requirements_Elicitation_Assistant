@@ -62,3 +62,13 @@ class ApplyIn(BaseModel):
 class ApplyOut(BaseModel):
     id: str
     status: str
+
+
+class VoteIn(BaseModel):
+    choice: str
+    comment: str | None = None
+
+
+class ResolutionCardOut(BaseModel):
+    proposal: ProposalOut | None = None
+    my_vote: VoteOut | None = None
