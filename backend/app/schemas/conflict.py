@@ -32,3 +32,13 @@ class ConflictPatch(BaseModel):
 class ResolutionSuggestion(BaseModel):
     suggestion: str
     rationale: str
+
+
+class ApplyIn(BaseModel):
+    surviving_requirement_id: str
+    statement: str
+
+
+class ApplyOut(BaseModel):
+    id: str
+    status: str

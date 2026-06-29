@@ -241,3 +241,59 @@ async def test_dismissed_conflict_not_reopened_on_redetect(monkeypatch):
         assert body == []
         doc = await get_db().conflicts.find_one({"_id": ObjectId(cid)})
         assert doc["status"] == "dismissed"
+
+
+@pytest.mark.asyncio
+async def test_apply_writes_surviving_rejects_counterpart_resolves(monkeypatch):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, pid, sid, (rid_a, rid_b) = await _setup_project_with_two_reqs(
+            c, "re_ap1@x.com", "sh_ap1@x.com"
+        )
+        cid = await _detect_one(c, reh, pid, rid_a, rid_b, monkeypatch)
+        r = await c.post(
+            f"/conflicts/{cid}/apply",
+            json={
+                "surviving_requirement_id": rid_a,
+                "statement": "Refunds under $50 auto-approve; $50+ need sign-off.",
+            },
+            headers=reh,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "resolved"
+        surv = await get_db().requirements.find_one({"_id": ObjectId(rid_a)})
+        ctr = await get_db().requirements.find_one({"_id": ObjectId(rid_b)})
+        conf = await get_db().conflicts.find_one({"_id": ObjectId(cid)})
+        assert surv["statement"].startswith("Refunds under $50")
+        assert ctr["status"] == "rejected"
+        assert conf["status"] == "resolved"
+
+
+@pytest.mark.asyncio
+async def test_apply_rejects_surviving_id_not_in_conflict(monkeypatch):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, pid, sid, (rid_a, rid_b) = await _setup_project_with_two_reqs(
+            c, "re_ap2@x.com", "sh_ap2@x.com"
+        )
+        cid = await _detect_one(c, reh, pid, rid_a, rid_b, monkeypatch)
+        r = await c.post(
+            f"/conflicts/{cid}/apply",
+            json={"surviving_requirement_id": str(ObjectId()), "statement": "X."},
+            headers=reh,
+        )
+        assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_apply_on_unowned_conflict_returns_404(monkeypatch):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, pid, sid, (rid_a, rid_b) = await _setup_project_with_two_reqs(
+            c, "re_ap3@x.com", "sh_ap3@x.com"
+        )
+        cid = await _detect_one(c, reh, pid, rid_a, rid_b, monkeypatch)
+        re2h = await _create_re(c, "re_ap3b@x.com")
+        r = await c.post(
+            f"/conflicts/{cid}/apply",
+            json={"surviving_requirement_id": rid_a, "statement": "X."},
+            headers=re2h,
+        )
+        assert r.status_code == 404, r.text

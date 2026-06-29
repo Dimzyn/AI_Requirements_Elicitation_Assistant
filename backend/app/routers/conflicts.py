@@ -7,6 +7,8 @@ from pymongo.errors import DuplicateKeyError
 from ..db.mongo import get_db
 from ..deps import require_engineer
 from ..schemas.conflict import (
+    ApplyIn,
+    ApplyOut,
     ConflictOut,
     ConflictPatch,
     RequirementRef,
@@ -435,3 +437,55 @@ async def suggest_resolution(cid: str, user: dict = Depends(require_engineer)):
     except UpstreamUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
     return ResolutionSuggestion(**result)
+
+
+@router.post("/conflicts/{cid}/apply", response_model=ApplyOut)
+async def apply_resolution(cid: str, body: ApplyIn, user: dict = Depends(require_engineer)):
+    """Commit the reconciled wording: write it to the surviving requirement, reject
+    the counterpart, and resolve the conflict — atomically, in one RE action."""
+    db = get_db()
+    try:
+        oid = ObjectId(cid)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "conflict not found") from exc
+    conflict = await db.conflicts.find_one({"_id": oid})
+    if not conflict:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "conflict not found")
+    if await _project_session_names(db, user["_id"], conflict["project_id"]) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "conflict not found")
+
+    surviving = body.surviving_requirement_id
+    pair = {conflict["requirement_a"], conflict["requirement_b"]}
+    if surviving not in pair:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "surviving_requirement_id must be one of the conflict's requirements",
+        )
+    counterpart = (pair - {surviving}).pop()
+
+    statement = (body.statement or "").strip()
+    if not statement:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "statement is required")
+
+    try:
+        surv_doc = await db.requirements.find_one({"_id": ObjectId(surviving)})
+        ctr_doc = await db.requirements.find_one({"_id": ObjectId(counterpart)})
+    except Exception:
+        surv_doc = ctr_doc = None
+    if not surv_doc or not ctr_doc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "conflict references a removed requirement")
+
+    now = datetime.now(timezone.utc)
+    await db.requirements.update_one(
+        {"_id": ObjectId(surviving)},
+        {"$set": {"statement": statement, "edited_by": user["_id"], "edited_at": now}},
+    )
+    await db.requirements.update_one(
+        {"_id": ObjectId(counterpart)},
+        {"$set": {"status": "rejected", "edited_by": user["_id"], "edited_at": now}},
+    )
+    await db.conflicts.update_one(
+        {"_id": oid},
+        {"$set": {"status": "resolved", "resolved_by": user["_id"], "updated_at": now}},
+    )
+    return ApplyOut(id=cid, status="resolved")
