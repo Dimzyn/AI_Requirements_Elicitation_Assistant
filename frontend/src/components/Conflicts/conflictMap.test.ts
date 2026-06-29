@@ -10,6 +10,8 @@ const conflict = (id: string, reqAId: string, reqBId: string): Conflict => ({
   requirement_a: { id: reqAId, statement: `a-${reqAId}`, stakeholder: "Alice" },
   requirement_b: { id: reqBId, statement: `b-${reqBId}`, stakeholder: "Bob" },
   resolution_sessions: [],
+  proposal: null,
+  votes: [],
   detected_at: "2026-01-01T00:00:00Z",
 });
 

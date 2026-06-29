@@ -11,6 +11,19 @@ export type ResolutionSessionRef = {
   stakeholder: string | null;
 };
 
+export type ResolutionProposal = {
+  statement: string;
+  rationale: string | null;
+  published_at: string;
+};
+
+export type ResolutionVote = {
+  stakeholder: string | null;
+  choice: "accept" | "request_changes";
+  comment: string | null;
+  voted_at: string;
+};
+
 export type Conflict = {
   id: string;
   project_id: string;
@@ -19,6 +32,8 @@ export type Conflict = {
   requirement_a: RequirementRef;
   requirement_b: RequirementRef;
   resolution_sessions: ResolutionSessionRef[];
+  proposal: ResolutionProposal | null;
+  votes: ResolutionVote[];
   detected_at: string;
 };
 
@@ -40,3 +55,35 @@ export type ResolutionSuggestion = {
 
 export const suggestResolution = (conflictId: string) =>
   api.post<ResolutionSuggestion>(`/conflicts/${conflictId}/suggest`).then((r) => r.data);
+
+export const proposeResolution = (cid: string, statement: string, rationale?: string | null) =>
+  api.post<Conflict>(`/conflicts/${cid}/propose`, { statement, rationale }).then((r) => r.data);
+
+export const applyResolution = (
+  cid: string,
+  survivingRequirementId: string,
+  statement: string
+) =>
+  api
+    .post<{ id: string; status: string }>(`/conflicts/${cid}/apply`, {
+      surviving_requirement_id: survivingRequirementId,
+      statement,
+    })
+    .then((r) => r.data);
+
+export type ResolutionCard = {
+  proposal: ResolutionProposal | null;
+  my_vote: ResolutionVote | null;
+};
+
+export const getResolutionCard = (sessionId: string) =>
+  api.get<ResolutionCard>(`/sessions/${sessionId}/resolution`).then((r) => r.data);
+
+export const voteResolution = (
+  sessionId: string,
+  choice: "accept" | "request_changes",
+  comment?: string
+) =>
+  api
+    .post<ResolutionCard>(`/sessions/${sessionId}/vote`, { choice, comment })
+    .then((r) => r.data);
