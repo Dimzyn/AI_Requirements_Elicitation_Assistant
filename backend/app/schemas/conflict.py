@@ -14,6 +14,24 @@ class ResolutionSessionRef(BaseModel):
     stakeholder: str | None = None
 
 
+class ProposalOut(BaseModel):
+    statement: str
+    rationale: str | None = None
+    published_at: datetime
+
+
+class VoteOut(BaseModel):
+    stakeholder: str | None = None
+    choice: str
+    comment: str | None = None
+    voted_at: datetime
+
+
+class ProposeIn(BaseModel):
+    statement: str
+    rationale: str | None = None
+
+
 class ConflictOut(BaseModel):
     id: str
     project_id: str
@@ -22,6 +40,8 @@ class ConflictOut(BaseModel):
     requirement_a: RequirementRef
     requirement_b: RequirementRef
     resolution_sessions: list[ResolutionSessionRef] = []
+    proposal: ProposalOut | None = None
+    votes: list[VoteOut] = []
     detected_at: datetime
 
 

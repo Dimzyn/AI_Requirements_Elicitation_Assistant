@@ -331,3 +331,38 @@ async def test_suggest_resolution_stakeholder_forbidden(monkeypatch):
         )
         r = await c.post(f"/conflicts/{cid}/suggest", headers=sh)
         assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_propose_sets_proposal_and_surfaces_on_list(monkeypatch):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, cid, _, _ = await _detect_one_conflict(
+            c, monkeypatch, re_email="re_prop1@x.com", sh_email="sh_prop1@x.com"
+        )
+        r = await c.post(
+            f"/conflicts/{cid}/propose",
+            json={"statement": "Compromise wording.", "rationale": "Splits the difference."},
+            headers=reh,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["proposal"]["statement"] == "Compromise wording."
+        assert r.json()["votes"] == []
+        listed = (await c.get(f"/projects/{pid}/conflicts", headers=reh)).json()
+        assert listed[0]["proposal"]["statement"] == "Compromise wording."
+
+
+@pytest.mark.asyncio
+async def test_propose_clears_existing_votes(monkeypatch):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, cid, _, _ = await _detect_one_conflict(
+            c, monkeypatch, re_email="re_prop2@x.com", sh_email="sh_prop2@x.com"
+        )
+        sh_user = await get_db().users.find_one({"email": "sh_prop2@x.com"})
+        # seed a stale vote directly, then re-propose
+        await get_db().conflicts.update_one(
+            {"_id": ObjectId(cid)},
+            {"$set": {f"votes.{str(sh_user['_id'])}": {"choice": "accept", "comment": None, "voted_at": datetime.now(timezone.utc)}}},
+        )
+        await c.post(f"/conflicts/{cid}/propose", json={"statement": "New wording."}, headers=reh)
+        conf = await get_db().conflicts.find_one({"_id": ObjectId(cid)})
+        assert conf.get("votes", {}) == {}

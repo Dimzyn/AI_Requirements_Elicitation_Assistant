@@ -11,9 +11,12 @@ from ..schemas.conflict import (
     ApplyOut,
     ConflictOut,
     ConflictPatch,
+    ProposeIn,
+    ProposalOut,
     RequirementRef,
     ResolutionSessionRef,
     ResolutionSuggestion,
+    VoteOut,
 )
 from ..services.conflict_detector import ConflictDetector
 from ..services.conflict_resolution import (
@@ -90,6 +93,17 @@ async def _req_ref(db, rid: str, session_names: dict) -> RequirementRef | None:
     )
 
 
+async def _uid_to_name(db, uid: str | None) -> str | None:
+    """Resolve a stakeholder user id to their real name (None if missing/invalid)."""
+    if not uid:
+        return None
+    try:
+        u = await db.users.find_one({"_id": ObjectId(uid)})
+    except Exception:
+        return None
+    return (u or {}).get("real_name")
+
+
 async def _resolution_refs(db, conflict_id: str, session_names: dict) -> list[ResolutionSessionRef]:
     """List the auto-opened resolution chats for a conflict (with stakeholder names)."""
     refs: list[ResolutionSessionRef] = []
@@ -106,6 +120,17 @@ async def _conflict_to_out(db, doc: dict, session_names: dict) -> ConflictOut | 
     ref_b = await _req_ref(db, doc["requirement_b"], session_names)
     if ref_a is None or ref_b is None:
         return None
+    prop = doc.get("proposal")
+    votes_out: list[VoteOut] = []
+    for uid, v in (doc.get("votes") or {}).items():
+        votes_out.append(
+            VoteOut(
+                stakeholder=await _uid_to_name(db, uid),
+                choice=v.get("choice"),
+                comment=v.get("comment"),
+                voted_at=v.get("voted_at"),
+            )
+        )
     return ConflictOut(
         id=str(doc["_id"]),
         project_id=doc["project_id"],
@@ -114,6 +139,8 @@ async def _conflict_to_out(db, doc: dict, session_names: dict) -> ConflictOut | 
         requirement_a=ref_a,
         requirement_b=ref_b,
         resolution_sessions=await _resolution_refs(db, str(doc["_id"]), session_names),
+        proposal=ProposalOut(**prop) if prop else None,
+        votes=votes_out,
         detected_at=doc["detected_at"],
     )
 
@@ -489,3 +516,39 @@ async def apply_resolution(cid: str, body: ApplyIn, user: dict = Depends(require
         {"$set": {"status": "resolved", "resolved_by": user["_id"], "updated_at": now}},
     )
     return ApplyOut(id=cid, status="resolved")
+
+
+@router.post("/conflicts/{cid}/propose", response_model=ConflictOut)
+async def propose_resolution(cid: str, body: ProposeIn, user: dict = Depends(require_engineer)):
+    """Publish the (RE-edited) reconciled wording to the conflict so stakeholders can
+    vote on it. Re-publishing clears prior votes."""
+    db = get_db()
+    try:
+        oid = ObjectId(cid)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "conflict not found") from exc
+    conflict = await db.conflicts.find_one({"_id": oid})
+    if not conflict:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "conflict not found")
+    session_names = await _project_session_names(db, user["_id"], conflict["project_id"])
+    if session_names is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "conflict not found")
+
+    statement = (body.statement or "").strip()
+    if not statement:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "statement is required")
+
+    now = datetime.now(timezone.utc)
+    doc = await db.conflicts.find_one_and_update(
+        {"_id": oid},
+        {"$set": {
+            "proposal": {"statement": statement, "rationale": body.rationale or None, "published_at": now},
+            "votes": {},
+            "updated_at": now,
+        }},
+        return_document=ReturnDocument.AFTER,
+    )
+    out = await _conflict_to_out(db, doc, session_names)
+    if out is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "conflict references a removed requirement")
+    return out
