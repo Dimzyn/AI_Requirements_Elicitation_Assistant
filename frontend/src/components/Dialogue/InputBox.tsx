@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useSessionStore } from "../../store/sessionStore";
 import { postMessage, postQuestion, finishSession } from "../../api/sessions";
 import { useAuthStore } from "../../store/authStore";
@@ -28,6 +28,16 @@ export default function InputBox() {
   const [error, setError] = useState<string | null>(null);
   const [wrapUp, setWrapUp] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // Grow the composer with its content up to a cap, then scroll within it — so a
+  // long answer stays fully visible instead of being clamped to a single line.
+  useLayoutEffect(() => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [text]);
 
   if (!activeId) {
     return (
@@ -78,11 +88,13 @@ export default function InputBox() {
     appendTurns([optimistic]);
 
     setStatus("validating");
+    let wrapSuggested = false;
     try {
       const { stakeholder_turn_id, session_title, wrap_up_suggested } = await postMessage(
         session_id,
         content
       );
+      wrapSuggested = !!wrap_up_suggested;
       useSessionStore.setState((s) => ({
         turns: s.turns.map((t) => (t.id === tempId ? { ...t, id: stakeholder_turn_id } : t)),
         // Reflect the auto-generated name in the sidebar without a refetch.
@@ -90,14 +102,22 @@ export default function InputBox() {
           ? s.sessions.map((se) => (se.id === session_id ? { ...se, title: session_title } : se))
           : s.sessions,
       }));
-      // The backend flags saturation (no new requirement for a few turns running);
-      // surface a gentle wrap-up prompt without forcing the stakeholder to stop.
+      // The backend flags wrap-up on an explicit "I'm done" or after a few turns
+      // with no new requirement; surface the gentle prompt.
       if (wrap_up_suggested) setWrapUp(true);
     } catch (err) {
       // /messages failed — roll back the optimistic bubble and restore the textbox.
       useSessionStore.setState((s) => ({ turns: s.turns.filter((t) => t.id !== tempId) }));
       setText(content);
       setError(describeError(err));
+      setStatus("idle");
+      setBusy(false);
+      return;
+    }
+
+    // Wrapping up: pause probing-question generation. "Keep going" dismisses the
+    // banner and the stakeholder's next message resumes generation.
+    if (wrapSuggested) {
       setStatus("idle");
       setBusy(false);
       return;
@@ -183,8 +203,9 @@ export default function InputBox() {
       )}
       <div className="flex items-end gap-2.5 rounded-xl border border-border bg-surface p-2.5 transition focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/15">
         <textarea
-          className="h-10 flex-1 resize-none bg-transparent text-sm text-foreground outline-none placeholder:text-muted/70"
-          rows={2}
+          ref={taRef}
+          className="max-h-40 min-h-[2.5rem] flex-1 resize-none overflow-y-auto bg-transparent text-sm text-foreground outline-none placeholder:text-muted/70"
+          rows={1}
           placeholder="Describe what you want…"
           value={text}
           onChange={(e) => setText(e.target.value)}

@@ -95,18 +95,18 @@ export default function MainPage() {
         backLabel="Back to project"
       />
       {role === "requirements_engineer" ? (
-        <div className="grid grid-cols-[248px_1fr_312px] overflow-hidden">
+        <div className="grid min-h-0 grid-cols-[248px_1fr_312px] grid-rows-[minmax(0,1fr)] overflow-hidden">
           <ProjectSidebar />
-          <main className="flex flex-col overflow-hidden bg-surface-muted">
+          <main className="flex min-h-0 flex-col overflow-hidden bg-surface-muted">
             <ChatPanel />
             <InputBox />
           </main>
           <LiveRequirements />
         </div>
       ) : (
-        <div className="grid grid-cols-[248px_1fr] overflow-hidden">
+        <div className="grid min-h-0 grid-cols-[248px_1fr] grid-rows-[minmax(0,1fr)] overflow-hidden">
           <ProjectSidebar />
-          <main className="flex flex-col overflow-hidden bg-surface-muted">
+          <main className="flex min-h-0 flex-col overflow-hidden bg-surface-muted">
             <ChatPanel />
             {activeId && <ResolutionVoteCard sessionId={activeId} />}
             <InputBox />
