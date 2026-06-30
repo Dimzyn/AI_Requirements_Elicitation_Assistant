@@ -97,6 +97,15 @@ export default function ConflictsPanel({
     void refresh();
   }, [refresh]);
 
+  // Poll so stakeholder votes (accept / request changes) surface on the RE's panel
+  // without a manual reload. Mirrors the project page's polling cadence.
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, 5000);
+    return () => clearInterval(intervalId);
+  }, [refresh]);
+
   async function onDetect() {
     setDetecting(true);
     setError(null);

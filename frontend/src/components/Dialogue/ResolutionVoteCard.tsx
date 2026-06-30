@@ -9,6 +9,7 @@ export default function ResolutionVoteCard({ sessionId }: { sessionId: string })
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [requesting, setRequesting] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -33,6 +34,7 @@ export default function ResolutionVoteCard({ sessionId }: { sessionId: string })
     try {
       const updated = await voteResolution(sessionId, choice, comment || undefined);
       setCard(updated);
+      setRequesting(false);
     } catch {
       setError("Couldn't record your vote — please try again.");
     } finally {
@@ -45,30 +47,62 @@ export default function ResolutionVoteCard({ sessionId }: { sessionId: string })
     <div className="mx-6 mb-3 rounded-xl border border-border bg-surface p-3 shadow-card space-y-2">
       <p className="text-xs font-medium text-accent">Proposed resolution — do you accept?</p>
       <p className="text-sm text-foreground">{card.proposal.statement}</p>
-      <textarea
-        value={comment}
-        onChange={(e) => setComment(e.target.value)}
-        placeholder="Optional: what would you change?"
-        rows={2}
-        className="w-full resize-none rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground"
-      />
+      {myChoice && (
+        <p className="text-xs text-muted">
+          {myChoice === "accept" ? "You accepted this wording." : "You requested changes."}
+        </p>
+      )}
       {error && <p className="text-xs text-danger">{error}</p>}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => vote("accept")}
-          disabled={busy}
-          className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition hover:brightness-110 disabled:opacity-40"
-        >
-          {myChoice === "accept" ? "Accepted ✓" : "Accept"}
-        </button>
-        <button
-          onClick={() => vote("request_changes")}
-          disabled={busy}
-          className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-surface-muted disabled:opacity-40"
-        >
-          {myChoice === "request_changes" ? "Changes requested ✓" : "Request changes"}
-        </button>
-      </div>
+      {requesting ? (
+        // The comment box belongs to the request-changes flow only — never shown for Accept.
+        <div className="space-y-2">
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="What would you change?"
+            rows={2}
+            autoFocus
+            className="w-full resize-none rounded border border-border bg-background px-2 py-1.5 text-xs text-foreground"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => vote("request_changes")}
+              disabled={busy}
+              className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition hover:brightness-110 disabled:opacity-40"
+            >
+              {busy ? "Sending…" : "Submit request"}
+            </button>
+            <button
+              onClick={() => {
+                setRequesting(false);
+                setComment("");
+                setError(null);
+              }}
+              disabled={busy}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-surface-muted disabled:opacity-40"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => vote("accept")}
+            disabled={busy}
+            className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-foreground transition hover:brightness-110 disabled:opacity-40"
+          >
+            {myChoice === "accept" ? "Accepted ✓" : "Accept"}
+          </button>
+          <button
+            onClick={() => setRequesting(true)}
+            disabled={busy}
+            className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-surface-muted disabled:opacity-40"
+          >
+            {myChoice === "request_changes" ? "Changes requested ✓" : "Request changes"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

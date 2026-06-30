@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   getProject,
@@ -30,6 +30,8 @@ export default function ProjectDetailPage() {
   const [inviting, setInviting] = useState(false);
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollKey = `proj-scroll-${id}`;
 
   const refresh = useCallback(async () => {
     try {
@@ -79,6 +81,21 @@ export default function ProjectDetailPage() {
     return () => clearInterval(intervalId);
   }, [refresh]);
 
+  // Remember where the RE was scrolled to, so returning via "Back to project" lands
+  // them at the same spot instead of the top. Restore once, when the project first
+  // finishes loading (not on every poll, which would fight the user's scrolling).
+  useEffect(() => {
+    if (!project) return;
+    const saved = sessionStorage.getItem(scrollKey);
+    const el = scrollRef.current;
+    if (saved && el) requestAnimationFrame(() => { el.scrollTop = Number(saved); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project === null]);
+
+  function onScroll(e: React.UIEvent<HTMLDivElement>) {
+    sessionStorage.setItem(scrollKey, String(e.currentTarget.scrollTop));
+  }
+
   async function onInvite(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) return;
@@ -119,7 +136,7 @@ export default function ProjectDetailPage() {
     <div className="grid h-screen grid-rows-[auto_1fr] bg-background">
       <AppHeader title={project.title} />
 
-      <div className="overflow-y-auto">
+      <div ref={scrollRef} onScroll={onScroll} className="overflow-y-auto">
         <div className="max-w-3xl mx-auto p-6 space-y-6">
           {/* Back nav */}
           <Link to="/projects" className="inline-flex items-center gap-1 text-sm text-muted hover:text-foreground hover:underline">
