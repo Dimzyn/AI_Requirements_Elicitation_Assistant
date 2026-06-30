@@ -15,11 +15,10 @@ from app.services.question_generator import QuestionGenerator
 
 
 class StubLLM:
-    """Returns valid drafts and valid-verdicts to keep the loop to one attempt.
+    """Returns a valid draft so we measure only orchestration overhead.
 
-    Discriminates validator prompts from draft prompts by the word "mistake",
-    which only appears in MistakeValidator._build_prompt (strategy prompts and
-    the context template do not contain it).
+    Option A folds validation into the single generation call, so there is just
+    one prompt type to answer.
     """
 
     def __init__(self) -> None:
@@ -34,8 +33,6 @@ class StubLLM:
         model=None,
     ):
         self.calls += 1
-        if "mistake" in prompt.lower() or "taxonomy" in prompt.lower():
-            return json.dumps({"valid": True, "mistakes": [], "correction": ""})
         return json.dumps(
             {"draft_question": "What integrations are required between modules?"}
         )
@@ -45,7 +42,8 @@ class StubLLM:
 async def test_next_question_under_5s_for_1000_word_input():
     text = " ".join(["payment"] * 1000)
     history = [{"role": "stakeholder", "content": text, "strategy": None}]
-    gen = QuestionGenerator(llm=StubLLM())
+    stub = StubLLM()
+    gen = QuestionGenerator(llm=stub)
 
     t0 = time.perf_counter()
     q = await gen.next_question(
@@ -57,4 +55,5 @@ async def test_next_question_under_5s_for_1000_word_input():
 
     print(f"\n[perf] next_question elapsed: {elapsed:.4f}s")
     assert q.valid is True
+    assert stub.calls == 1  # single LLM round-trip (Option A)
     assert elapsed < 5.0, f"NFR violated: next_question took {elapsed:.2f}s"

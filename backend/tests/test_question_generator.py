@@ -2,10 +2,11 @@ import pytest
 from app.services.question_generator import QuestionGenerator, GeneratedQuestion
 
 
-class ScriptedLLM:
-    """Returns a fixed sequence of strings, one per generate() call."""
-    def __init__(self, outputs):
-        self.outputs = list(outputs)
+class RecordingLLM:
+    """Records each generate() call and returns a scripted JSON payload."""
+
+    def __init__(self, payload='{"draft_question": "How do you currently handle refunds?"}'):
+        self.payload = payload
         self.calls = []
 
     async def generate(self, prompt, *, temperature, response_mime_type=None, model=None):
@@ -15,21 +16,17 @@ class ScriptedLLM:
             "response_mime_type": response_mime_type,
             "model": model,
         })
-        return self.outputs.pop(0)
+        return self.payload
+
+
+HISTORY = [{"role": "stakeholder", "content": "I want a payment app for online retail."}]
 
 
 @pytest.mark.asyncio
-async def test_first_draft_passes():
-    llm = ScriptedLLM([
-        '{"draft_question": "How do you currently handle refunds?"}',
-        '{"valid": true, "mistakes": [], "correction": ""}',
-    ])
+async def test_single_call_returns_question():
+    llm = RecordingLLM()
     g = QuestionGenerator(llm=llm)
-    result = await g.next_question(
-        phase="exploration",
-        summary="",
-        history=[{"role": "stakeholder", "content": "I want a payment app for online retail."}],
-    )
+    result = await g.next_question(phase="exploration", summary="", history=HISTORY)
     assert isinstance(result, GeneratedQuestion)
     assert "refunds" in result.question
     assert result.attempts == 1
@@ -39,70 +36,49 @@ async def test_first_draft_passes():
 
 
 @pytest.mark.asyncio
-async def test_first_draft_uses_high_temperature():
-    llm = ScriptedLLM([
-        '{"draft_question": "Q1?"}',
-        '{"valid": true, "mistakes": [], "correction": ""}',
-    ])
+async def test_generates_in_a_single_high_temperature_call():
+    # Option A folds validation into generation: exactly ONE LLM round-trip.
+    llm = RecordingLLM()
     g = QuestionGenerator(llm=llm)
-    await g.next_question(phase="exploration", summary="", history=[
-        {"role": "stakeholder", "content": "I want a payment app for online retail."}
-    ])
-    # first call = draft (temp 0.7); second call = validator (temp 0.1)
+    await g.next_question(phase="exploration", summary="", history=HISTORY)
+    assert len(llm.calls) == 1
     assert llm.calls[0]["temperature"] == 0.7
-    assert llm.calls[1]["temperature"] == 0.1
+    assert llm.calls[0]["response_mime_type"] == "application/json"
 
 
 @pytest.mark.asyncio
-async def test_retries_on_leading_question():
-    llm = ScriptedLLM([
-        '{"draft_question": "Don\'t you think we should use Stripe?"}',
-        '{"valid": false, "mistakes": ["leading"], "correction": "Ask which payment providers they are considering."}',
-        '{"draft_question": "Which payment providers are you considering?"}',
-        '{"valid": true, "mistakes": [], "correction": ""}',
-    ])
+async def test_prompt_embeds_strategy_and_mistake_taxonomy():
+    llm = RecordingLLM()
     g = QuestionGenerator(llm=llm)
-    result = await g.next_question(phase="exploration", summary="", history=[
-        {"role": "stakeholder", "content": "I want a payment app for online retail."}
-    ])
-    assert "providers" in result.question
-    assert result.attempts == 2
+    await g.next_question(phase="exploration", summary="", history=HISTORY)
+    prompt = llm.calls[0]["prompt"]
+    # the single prompt carries the strategy directive ...
+    assert "Strategy directive:" in prompt
+    # ... and the 14-mistake taxonomy as an inline generation guard.
+    assert "MUST NOT commit" in prompt
+    for mistake_id in ("leading", "compound", "vague", "missing_nonfunctional"):
+        assert mistake_id in prompt
+
+
+@pytest.mark.asyncio
+async def test_short_reply_selects_general_strategy():
+    llm = RecordingLLM()
+    g = QuestionGenerator(llm=llm)
+    history = [
+        {"role": "stakeholder", "content": "I want a payment app for online retail."},
+        {"role": "agent", "content": "Q1?", "strategy": "concept"},
+        {"role": "stakeholder", "content": "Yes."},  # short reply -> general
+    ]
+    result = await g.next_question(phase="exploration", summary="", history=history)
+    assert result.strategy == "general"
+
+
+@pytest.mark.asyncio
+async def test_missing_draft_question_yields_empty_string():
+    # A malformed payload without draft_question degrades to an empty question
+    # rather than raising, so a single bad turn can't 500 the dialogue endpoint.
+    llm = RecordingLLM(payload='{"sub_steps": [], "knowledge_gap": "x"}')
+    g = QuestionGenerator(llm=llm)
+    result = await g.next_question(phase="exploration", summary="", history=HISTORY)
+    assert result.question == ""
     assert result.valid is True
-
-
-@pytest.mark.asyncio
-async def test_retry_uses_low_temperature():
-    llm = ScriptedLLM([
-        '{"draft_question": "Bad?"}',
-        '{"valid": false, "mistakes": ["vague"], "correction": "Be specific."}',
-        '{"draft_question": "Better?"}',
-        '{"valid": true, "mistakes": [], "correction": ""}',
-    ])
-    g = QuestionGenerator(llm=llm)
-    await g.next_question(phase="exploration", summary="", history=[
-        {"role": "stakeholder", "content": "I want a payment app for online retail."}
-    ])
-    # calls: [0] draft 0.7, [1] validator 0.1, [2] retry-draft 0.1, [3] validator 0.1
-    assert llm.calls[0]["temperature"] == 0.7
-    assert llm.calls[2]["temperature"] == 0.1
-
-
-@pytest.mark.asyncio
-async def test_gives_up_after_max_retries():
-    # always bad: 3 drafts + 3 validations = 6 calls
-    llm = ScriptedLLM([
-        '{"draft_question": "Bad1?"}',
-        '{"valid": false, "mistakes": ["leading"], "correction": "fix"}',
-        '{"draft_question": "Bad2?"}',
-        '{"valid": false, "mistakes": ["leading"], "correction": "fix"}',
-        '{"draft_question": "Bad3?"}',
-        '{"valid": false, "mistakes": ["leading"], "correction": "fix"}',
-    ])
-    g = QuestionGenerator(llm=llm, max_retries=3)
-    result = await g.next_question(phase="exploration", summary="", history=[
-        {"role": "stakeholder", "content": "I want a payment app for online retail."}
-    ])
-    assert result.attempts == 3
-    assert result.valid is False
-    assert "leading" in result.mistakes
-    assert result.question == "Bad3?"

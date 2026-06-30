@@ -8,6 +8,15 @@ _TAX = json.loads(
 )
 
 
+def taxonomy_block() -> str:
+    """The 14-mistake taxonomy rendered as a bulleted ``- id: desc`` list.
+
+    Shared by the validator's review prompt and the generator's inline guard so
+    both speak from the same taxonomy source.
+    """
+    return "\n".join(f"- {m['id']}: {m['desc']}" for m in _TAX["mistakes"])
+
+
 @dataclass
 class Verdict:
     valid: bool
@@ -25,7 +34,7 @@ class MistakeValidator:
         self.max_retries = max_retries
 
     def _build_prompt(self, draft: str) -> str:
-        mistakes_block = "\n".join(f"- {m['id']}: {m['desc']}" for m in _TAX["mistakes"])
+        mistakes_block = taxonomy_block()
         return (
             "You are a strict requirements-interview reviewer.\n"
             f"Given the candidate probing question:\n\"\"\"{draft}\"\"\"\n"

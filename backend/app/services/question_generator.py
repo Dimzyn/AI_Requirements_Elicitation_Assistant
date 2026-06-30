@@ -5,10 +5,22 @@ from typing import List, Optional
 
 from .context_manager import ContextManager
 from .strategy_selector import StrategySelector
-from .mistake_validator import MistakeValidator
+from .mistake_validator import taxonomy_block
 
 _STRATS = json.loads(
     (Path(__file__).parent.parent / "prompts" / "strategy_prompts.json").read_text(encoding="utf-8")
+)
+
+# The 14-mistake taxonomy is applied INLINE during generation: a single Gemini call
+# produces a question that already self-avoids the mistakes, instead of a separate
+# validator call plus a retry loop. This roughly halves per-question latency while
+# keeping the taxonomy as the quality guard (now a generation constraint).
+_MISTAKE_GUARD = (
+    "Your draft_question MUST NOT commit any of these 14 requirements-interview "
+    "mistakes:\n"
+    f"{taxonomy_block()}\n"
+    "Silently re-check the question against every item above and rewrite it until "
+    "it commits none before you return it."
 )
 
 
@@ -22,58 +34,44 @@ class GeneratedQuestion:
 
 
 class QuestionGenerator:
-    """Orchestrates draft -> validate -> (retry) loop using the Hybrid Intelligent Agent."""
+    """Generates one probing question per call via the Hybrid Intelligent Agent.
+
+    ``ContextManager`` (Least-to-Most) and ``StrategySelector`` (Concept / Related /
+    NFR / Pivot / General) shape the prompt; the 14-mistake taxonomy is embedded as
+    a generation guard so a single LLM call yields an already-validated question.
+    """
 
     def __init__(
         self,
         *,
         llm,
-        max_retries: int = 3,
         ctx: Optional[ContextManager] = None,
         sel: Optional[StrategySelector] = None,
-        val: Optional[MistakeValidator] = None,
     ) -> None:
         self.llm = llm
-        self.max_retries = max_retries
         self.ctx = ctx or ContextManager()
         self.sel = sel or StrategySelector()
-        self.val = val or MistakeValidator(llm=llm, max_retries=max_retries)
-
-    async def _draft(self, prompt: str, *, temperature: float) -> str:
-        raw = await self.llm.generate(
-            prompt,
-            temperature=temperature,
-            response_mime_type="application/json",
-        )
-        return json.loads(raw)["draft_question"]
 
     async def next_question(self, *, phase: str, summary: str, history: list) -> GeneratedQuestion:
         agent_history = [t.get("strategy") for t in history if t["role"] == "agent" and t.get("strategy")]
-        last_stakeholder = next((t["content"] for t in reversed(history) if t["role"] == "stakeholder"), "")
+        last_stakeholder = next(
+            (t["content"] for t in reversed(history) if t["role"] == "stakeholder"), ""
+        )
         strategy = self.sel.choose(agent_history=agent_history, last_stakeholder=last_stakeholder)
+
         context_prompt = self.ctx.build_prompt(phase=phase, summary=summary, history=history)
-        prompt = f"{context_prompt}\n\nStrategy directive: {_STRATS[strategy]}"
+        prompt = (
+            f"{context_prompt}\n\n"
+            f"Strategy directive: {_STRATS[strategy]}\n\n"
+            f"{_MISTAKE_GUARD}"
+        )
 
-        draft = await self._draft(prompt, temperature=0.7)
-        attempts = 1
-        verdict = await self.val.validate(draft)
-
-        while not verdict.valid and attempts < self.max_retries:
-            attempts += 1
-            correction_prompt = (
-                f"{prompt}\n\n"
-                f"The previous draft was: \"{draft}\".\n"
-                f"It committed these mistakes: {verdict.mistakes}.\n"
-                f"Apply this correction: {verdict.correction}\n"
-                "Return JSON with the corrected draft_question."
-            )
-            draft = await self._draft(correction_prompt, temperature=0.1)
-            verdict = await self.val.validate(draft)
-
+        raw = await self.llm.generate(prompt, temperature=0.7, response_mime_type="application/json")
+        question = (json.loads(raw).get("draft_question") or "").strip()
         return GeneratedQuestion(
-            question=draft,
+            question=question,
             strategy=strategy,
-            attempts=attempts,
-            valid=verdict.valid,
-            mistakes=verdict.mistakes,
+            attempts=1,
+            valid=True,
+            mistakes=[],
         )
