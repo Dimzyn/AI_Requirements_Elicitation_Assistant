@@ -37,3 +37,13 @@ async def test_extract_returns_empty_list_when_no_requirements_field():
 async def test_extract_returns_empty_list_when_array_is_empty():
     ex = RequirementExtractor(llm=Stub('{"requirements": []}'))
     assert await ex.extract("vague input") == []
+
+
+@pytest.mark.asyncio
+async def test_extract_caps_at_five():
+    # A long reply can yield several requirements; we keep at most 5 (raised from 3
+    # so a measurable NFR isn't truncated away behind earlier functional ones).
+    items = ", ".join(f'{{"statement":"Req {i}.","type":"functional"}}' for i in range(8))
+    ex = RequirementExtractor(llm=Stub(f'{{"requirements": [{items}]}}'))
+    out = await ex.extract("a reply mentioning many things")
+    assert len(out) == 5

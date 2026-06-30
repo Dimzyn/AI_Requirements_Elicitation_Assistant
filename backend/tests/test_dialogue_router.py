@@ -413,3 +413,28 @@ async def test_requirement_dedup_across_messages(monkeypatch):
         # the card-payment requirement appears once (under its original wording)
         card_reqs = [r for r in reqs if "card" in r["statement"].lower()]
         assert len(card_reqs) == 1
+
+
+@pytest.mark.asyncio
+async def test_nfr_not_deduped_against_functional_sibling(monkeypatch):
+    # A functional behaviour and a non-functional threshold that share most of
+    # their words must BOTH survive — dedup is scoped per requirement type.
+    # (Token overlap here is ~0.71, which would be dropped by a type-blind dedup.)
+    extractors = iter([
+        FakeExtractor(items=[
+            {"statement": "Users can register a QR code check-in.", "type": "functional"},
+        ]),
+        FakeExtractor(items=[
+            {"statement": "The system must register a QR code check-in within 5 seconds.",
+             "type": "non_functional"},
+        ]),
+    ])
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: next(extractors))
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen("QR Project"))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        await c.post(f"/sessions/{sid}/messages", json={"content": "qr check-in feature"}, headers=sh)
+        await c.post(f"/sessions/{sid}/messages", json={"content": "and it has a speed target"}, headers=sh)
+        reqs = [d async for d in get_db().requirements.find({"session_id": sid})]
+        types = sorted(r["type"] for r in reqs)
+        assert types == ["functional", "non_functional"], [r["statement"] for r in reqs]

@@ -82,11 +82,36 @@ def _jaccard(a: set[str], b: set[str]) -> float:
 _SATURATION_THRESHOLD = 3
 
 
+# Phrases that explicitly signal the stakeholder is finished. Matched cheaply (no
+# LLM) so the wrap-up prompt can surface immediately on an "I'm done" instead of
+# waiting for the saturation streak to build up over several no-new-info turns.
+_DONE_INTENT = re.compile(
+    r"\b(i['’]?m done|i am done|we['’]?re done|we are done|"
+    r"that['’]?s all|that is all|that['’]?s everything|that is everything|"
+    r"that['’]?s it|that is it|nothing else|nothing further|nothing more|"
+    r"no more (?:questions|to add)|we['’]?ve covered everything|"
+    r"covered everything|that covers it|i think that covers|all good)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_done(content: str) -> bool:
+    """True when the stakeholder message reads as an explicit 'I'm finished' signal."""
+    return bool(_DONE_INTENT.search(content or ""))
+
+
 async def _dedup_requirement_docs(db, sid: str, stakeholder_turn_id: str, extracted: list[dict], now) -> list[dict]:
-    """Return only the requirement docs whose token-set isn't a near-duplicate of an existing one."""
-    existing_tokens: list[set[str]] = []
-    async for r in db.requirements.find({"session_id": sid}, {"statement": 1}):
-        existing_tokens.append(_tokenize_statement(r["statement"]))
+    """Return only the requirement docs that aren't a near-duplicate of an existing
+    requirement OF THE SAME TYPE.
+
+    Dedup is scoped per type on purpose: a non-functional threshold and the
+    functional behaviour it qualifies often share most of their words
+    (e.g. "register a QR check-in" vs "register a QR check-in within 5 seconds")
+    yet are distinct requirements — comparing across types would wrongly drop the NFR.
+    """
+    existing_by_type: dict[str, list[set[str]]] = {}
+    async for r in db.requirements.find({"session_id": sid}, {"statement": 1, "type": 1}):
+        existing_by_type.setdefault(r.get("type"), []).append(_tokenize_statement(r["statement"]))
 
     docs: list[dict] = []
     for r in extracted:
@@ -95,9 +120,10 @@ async def _dedup_requirement_docs(db, sid: str, stakeholder_turn_id: str, extrac
         if not statement or not rtype:
             continue
         new_tokens = _tokenize_statement(statement)
-        if any(_jaccard(new_tokens, e) >= _DEDUP_THRESHOLD for e in existing_tokens):
+        bucket = existing_by_type.setdefault(rtype, [])
+        if any(_jaccard(new_tokens, e) >= _DEDUP_THRESHOLD for e in bucket):
             continue
-        existing_tokens.append(new_tokens)
+        bucket.append(new_tokens)
         docs.append({
             "session_id": sid,
             "statement": statement,
@@ -131,19 +157,29 @@ async def _extract_and_track_saturation(
         if extracted
         else []
     )
+
+    # An explicit "I'm done"-style message offers to wrap up right away, regardless
+    # of whether this turn added a requirement or where the saturation streak stands.
+    done = _looks_done(content)
+
     if docs:
         await db.requirements.insert_many(docs)
         await db.sessions.update_one(
             {"_id": session["_id"]},
-            {"$set": {"saturation_streak": 0, "wrap_up_suggested": False}},
+            {"$set": {"saturation_streak": 0, "wrap_up_suggested": done}},
         )
-        return False
+        return done
 
     streak = session.get("saturation_streak", 0) + 1
-    suggest = streak >= _SATURATION_THRESHOLD
+    suggest = done or streak >= _SATURATION_THRESHOLD
     await db.sessions.update_one(
         {"_id": session["_id"]},
-        {"$set": {"saturation_streak": streak, "wrap_up_suggested": suggest}},
+        {"$set": {
+            # On an explicit done-signal, latch the streak at the threshold so the
+            # suggestion sticks across following turns until real input resets it.
+            "saturation_streak": max(streak, _SATURATION_THRESHOLD) if done else streak,
+            "wrap_up_suggested": suggest,
+        }},
     )
     return suggest
 

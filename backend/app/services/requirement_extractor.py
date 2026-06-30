@@ -31,14 +31,19 @@ class RequirementExtractor:
             "    'Order placement and payment.'   (fragment)\n"
             "    'Fast and reliable.'             (vague, not measurable)\n\n"
             "QUANTITY RULE:\n"
-            "- Extract at most 3 requirements per stakeholder reply. Pick only the most\n"
-            "  concrete, testable, and distinct capabilities. If the reply mentions 5 things\n"
-            "  but 2 are vague, emit only the 3 strong ones.\n"
+            "- Extract at most 5 requirements per stakeholder reply. Pick only the most\n"
+            "  concrete, testable, and distinct capabilities. If the reply mentions 7 things\n"
+            "  but 2 are vague, emit only the strong ones.\n"
             "- Prefer FEWER high-quality requirements over MANY low-quality ones.\n\n"
             "CONTENT RULES:\n"
             "- One requirement = one user-visible capability or constraint. Combine multi-step "
             "interactions (drag-and-drop, search-and-filter, login-with-OTP) into a single line.\n"
             "- Deduplicate: if two phrasings describe the same capability, keep only one.\n"
+            "- BUT a measurable threshold is its OWN requirement: when a reply gives an explicit\n"
+            "  metric (a time/latency limit, percentage, count, rate, or named standard), ALWAYS\n"
+            "  emit a non_functional requirement for it — even if a functional requirement already\n"
+            "  covers the same feature. E.g. 'register a QR check-in within 5 seconds' yields BOTH\n"
+            "  a functional check-in requirement AND a separate non_functional 5-second one.\n"
             "- Skip vague filler that isn't actionable ('be user-friendly' on its own).\n"
             "- Skip anything the stakeholder only IMPLIED but didn't explicitly state.\n\n"
             "CLASSIFY BY INTENT, NOT BY KEYWORDS:\n"
@@ -80,4 +85,4 @@ class RequirementExtractor:
         )
         raw = await self.llm.generate(prompt, temperature=0.2, response_mime_type="application/json")
         reqs = json.loads(raw).get("requirements", [])
-        return reqs[:3]
+        return reqs[:5]

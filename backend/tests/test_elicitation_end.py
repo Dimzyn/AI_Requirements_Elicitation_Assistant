@@ -92,3 +92,52 @@ async def test_finish_other_user_404():
         tok = (await c.post("/auth/login", json={"email": "other@x.com", "password": "Passw0rd!"})).json()["access_token"]
         r = await c.post(f"/sessions/{sid}/finish", headers={"Authorization": f"Bearer {tok}"})
         assert r.status_code == 404, r.text
+
+
+# --------------------------------------------------------------------------- #
+# Explicit "I'm done" intent -> immediate wrap-up suggestion                   #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_explicit_done_suggests_wrap_up_immediately(monkeypatch):
+    # Even on the very first message, an explicit "I'm done" offers to wrap up —
+    # without waiting for the 3-turn saturation streak to build.
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor(items=[]))
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/messages", json={"content": "No, that's all I had."}, headers=sh)
+        assert r.json()["wrap_up_suggested"] is True
+
+
+@pytest.mark.asyncio
+async def test_done_intent_wraps_up_even_with_new_requirement(monkeypatch):
+    # "that's everything" wraps up immediately even when the turn also yields a
+    # requirement — and that requirement is still persisted.
+    monkeypatch.setattr(
+        dialogue_mod,
+        "_make_extractor",
+        lambda: FakeExtractor(items=[{"statement": "Users can log in.", "type": "functional"}]),
+    )
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(
+            f"/sessions/{sid}/messages",
+            json={"content": "Add a login screen, and that's everything from me."},
+            headers=sh,
+        )
+        assert r.json()["wrap_up_suggested"] is True
+        reqs = [d async for d in get_db().requirements.find({"session_id": sid})]
+        assert len(reqs) == 1
+
+
+@pytest.mark.asyncio
+async def test_ordinary_message_does_not_suggest_wrap_up(monkeypatch):
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor(items=[]))
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/messages", json={"content": "I want a booking system."}, headers=sh)
+        assert r.json()["wrap_up_suggested"] is False
