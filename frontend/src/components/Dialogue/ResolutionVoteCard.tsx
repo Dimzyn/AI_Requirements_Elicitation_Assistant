@@ -13,6 +13,7 @@ export default function ResolutionVoteCard({ sessionId }: { sessionId: string })
 
   useEffect(() => {
     let alive = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset before re-fetching when sessionId changes
     setCard(null);
     getResolutionCard(sessionId)
       .then((c) => {

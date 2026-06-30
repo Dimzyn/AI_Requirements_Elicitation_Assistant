@@ -94,6 +94,7 @@ export default function ConflictsPanel({
   }, [projectId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional fetch-on-mount; refresh loads the conflict list
     void refresh();
   }, [refresh]);
 
