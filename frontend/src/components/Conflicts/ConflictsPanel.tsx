@@ -10,6 +10,7 @@ import {
   type Conflict,
 } from "../../api/conflicts";
 import { voteSummary } from "./voteSummary";
+import { resolutionLabel } from "./resolutionLabel";
 import { buildContactMessage, buildSelfContactMessage } from "./contactMessage";
 
 type SuggestState = {
@@ -246,6 +247,18 @@ export default function ConflictsPanel({
                     >
                       {rs.stakeholder || "Stakeholder"}
                     </Link>
+                  ))}
+                </div>
+              )}
+
+              {c.resolutions.length > 0 && (
+                <div className="space-y-1 rounded-md border border-dashed border-border bg-surface px-2 py-1.5 text-xs">
+                  <p className="text-muted">Captured resolutions:</p>
+                  {c.resolutions.map((s, i) => (
+                    <p key={i} className="text-foreground">
+                      {s.stakeholder ?? "Stakeholder"}: {resolutionLabel(s.decision)}
+                      {s.statement ? ` — "${s.statement}"` : ""}
+                    </p>
                   ))}
                 </div>
               )}
