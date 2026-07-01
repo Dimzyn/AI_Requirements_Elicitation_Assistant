@@ -9,6 +9,8 @@ from ..services.question_generator import QuestionGenerator
 from ..services.llm_service import LLMService, UpstreamUnavailable
 from ..services.requirement_extractor import RequirementExtractor
 from ..services.title_generator import TitleGenerator
+from ..services.resolution_tracker import ResolutionTracker
+from ..schemas.conflict import ResolutionStanceOut
 
 router = APIRouter(prefix="/sessions", tags=["dialogue"])
 
@@ -23,6 +25,10 @@ def _make_extractor() -> RequirementExtractor:
 
 def _make_title_generator() -> TitleGenerator:
     return TitleGenerator(llm=LLMService())
+
+
+def _make_resolution_tracker() -> ResolutionTracker:
+    return ResolutionTracker(llm=LLMService())
 
 
 async def _maybe_auto_name(db, session: dict, oid, stakeholder_text: str) -> str:
@@ -184,6 +190,86 @@ async def _extract_and_track_saturation(
     return suggest
 
 
+async def _track_resolution(db, session: dict, sid: str, now) -> dict | None:
+    """For a conflict-resolution turn: detect a reached resolution and, if so, write
+    the stance onto the conflict and pause probing. Returns the API stance dict (or
+    None). Bails safely — without constructing the LLM — when the conflict or its
+    requirements can't be loaded, so a malformed conflict_id never 500s a reply.
+    """
+    conflict_id = session.get("conflict_id")
+    if not conflict_id:
+        return None
+    try:
+        conflict = await db.conflicts.find_one({"_id": ObjectId(conflict_id)})
+    except Exception:
+        conflict = None
+    if not conflict:
+        return None
+    try:
+        req_a = await db.requirements.find_one({"_id": ObjectId(conflict["requirement_a"])})
+        req_b = await db.requirements.find_one({"_id": ObjectId(conflict["requirement_b"])})
+    except Exception:
+        req_a = req_b = None
+    if not req_a or not req_b:
+        return None
+
+    sess_a = await db.sessions.find_one({"_id": ObjectId(req_a["session_id"])})
+    sess_b = await db.sessions.find_one({"_id": ObjectId(req_b["session_id"])})
+    same = bool(sess_a and sess_b and sess_a.get("stakeholder_id") == sess_b.get("stakeholder_id"))
+
+    transcript = [
+        {"role": t["role"], "content": t["content"]}
+        async for t in db.turns.find({"session_id": sid}).sort("created_at", 1)
+    ]
+    try:
+        result = await _make_resolution_tracker().track(
+            statement_a=req_a["statement"],
+            statement_b=req_b["statement"],
+            explanation=conflict.get("explanation", ""),
+            transcript=transcript,
+            same_stakeholder=same,
+        )
+    except Exception:
+        return None
+    if not result.get("reached"):
+        return None
+
+    await db.conflicts.update_one(
+        {"_id": conflict["_id"]},
+        {"$set": {
+            f"resolutions.{session['stakeholder_id']}": {
+                "decision": result["decision"],
+                "statement": result.get("statement"),
+                "session_id": sid,
+                "captured_at": now,
+            },
+            "updated_at": now,
+        }},
+    )
+    await db.sessions.update_one(
+        {"_id": session["_id"]},
+        {"$set": {"wrap_up_suggested": True, "updated_at": now}},
+    )
+    return {
+        "stakeholder": None,
+        "decision": result["decision"],
+        "statement": result.get("statement"),
+        "captured_at": now,
+    }
+
+
+async def _process_stakeholder_turn(
+    db, session: dict, sid: str, stakeholder_turn_id: str, content: str, now
+) -> tuple[bool, dict | None]:
+    """Interview turns extract requirements + track saturation; conflict turns track
+    resolution. Returns (wrap_up_suggested, resolution-stance-or-None)."""
+    if session.get("kind") == "conflict_resolution":
+        stance = await _track_resolution(db, session, sid, now)
+        return (stance is not None, stance)
+    wrap = await _extract_and_track_saturation(db, session, sid, stakeholder_turn_id, content, now)
+    return (wrap, None)
+
+
 @router.post("/{sid}/turns", response_model=TurnResponse)
 async def post_turn(
     sid: str,
@@ -219,7 +305,7 @@ async def post_turn(
 
     await _maybe_auto_name(db, session, oid, body.content)
 
-    wrap_up_suggested = await _extract_and_track_saturation(
+    wrap_up_suggested, resolution = await _process_stakeholder_turn(
         db, session, sid, stakeholder_turn_id, body.content, now
     )
 
@@ -238,7 +324,9 @@ async def post_turn(
 
     questions_out: list[QuestionOut] = []
     for _ in range(count):
-        q = await gen.next_question(phase=phase, summary=summary, history=history)
+        q = await gen.next_question(
+            phase=phase, summary=summary, history=history, kind=session.get("kind", "interview")
+        )
         agent_doc = {
             "session_id": sid,
             "role": "agent",
@@ -258,6 +346,7 @@ async def post_turn(
         stakeholder_turn_id=stakeholder_turn_id,
         questions=questions_out,
         wrap_up_suggested=wrap_up_suggested,
+        resolution=ResolutionStanceOut(**resolution) if resolution else None,
     )
 
 
@@ -292,7 +381,7 @@ async def post_message(
 
     session_title = await _maybe_auto_name(db, session, oid, body.content)
 
-    wrap_up_suggested = await _extract_and_track_saturation(
+    wrap_up_suggested, resolution = await _process_stakeholder_turn(
         db, session, sid, stakeholder_turn_id, body.content, now
     )
 
@@ -300,6 +389,7 @@ async def post_message(
         stakeholder_turn_id=stakeholder_turn_id,
         session_title=session_title,
         wrap_up_suggested=wrap_up_suggested,
+        resolution=ResolutionStanceOut(**resolution) if resolution else None,
     )
 
 
@@ -337,6 +427,7 @@ async def post_question(
             phase=session["phase"],
             summary=summary,
             history=history,
+            kind=session.get("kind", "interview"),
         )
     except UpstreamUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc

@@ -12,7 +12,7 @@ class FakeGen:
         self.calls = 0
         self.history_lengths = []
 
-    async def next_question(self, *, phase, summary, history):
+    async def next_question(self, *, phase, summary, history, kind="interview"):
         self.calls += 1
         self.history_lengths.append(len(history))
         return GeneratedQuestion(
