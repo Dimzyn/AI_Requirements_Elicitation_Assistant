@@ -1,7 +1,11 @@
 import json
+import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from .context_manager import ContextManager
 from .strategy_selector import StrategySelector, ConflictStrategySelector
@@ -73,7 +77,17 @@ class QuestionGenerator:
             f"{_MISTAKE_GUARD}"
         )
 
+        t0 = time.perf_counter()
         raw = await self.llm.generate(prompt, temperature=0.7, response_mime_type="application/json")
+        # Surfaces whether latency tracks history growth (prompt chars / turn count)
+        # or upstream slowness (pair with LLMService's fallback warnings).
+        logger.info(
+            "probing question generated in %.0f ms (strategy=%s, prompt=%d chars, history=%d turns)",
+            (time.perf_counter() - t0) * 1000,
+            strategy,
+            len(prompt),
+            len(history),
+        )
         question = (json.loads(raw).get("draft_question") or "").strip()
         return GeneratedQuestion(
             question=question,

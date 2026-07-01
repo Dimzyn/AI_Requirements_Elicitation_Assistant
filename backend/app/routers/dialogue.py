@@ -2,6 +2,7 @@ from bson import ObjectId
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from ..config import settings
 from ..db.mongo import get_db
 from ..deps import current_user_id_from_token, require_stakeholder
 from ..schemas.dialogue import TurnIn, QuestionOut, TurnOut, TurnResponse, MessageResponse
@@ -16,7 +17,14 @@ router = APIRouter(prefix="/sessions", tags=["dialogue"])
 
 
 def _make_generator() -> QuestionGenerator:
-    return QuestionGenerator(llm=LLMService())
+    # Probing questions use the lighter/faster model to cut per-turn latency,
+    # with the standard model as fallback if the light one is unavailable.
+    return QuestionGenerator(
+        llm=LLMService(
+            model=settings.gemini_question_model,
+            fallback_model=settings.gemini_model,
+        )
+    )
 
 
 def _make_extractor() -> RequirementExtractor:

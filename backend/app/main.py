@@ -1,5 +1,11 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Surface app-level INFO logs (question timing, Gemini fallback events) in the
+# console; uvicorn only configures its own loggers, not the root, by default.
+logging.basicConfig(level=logging.INFO)
 
 from .config import settings
 from .db.mongo import init_indexes

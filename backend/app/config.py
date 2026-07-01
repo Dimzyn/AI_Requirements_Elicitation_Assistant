@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     gemini_fallback_model: str = "gemini-2.5-flash-lite"
     gemini_validator_model: str = "gemini-2.5-flash"
+    # Probing questions run on the lighter model to keep per-turn latency low; the
+    # heavier gemini_model stays their fallback. Override via GEMINI_QUESTION_MODEL.
+    gemini_question_model: str = "gemini-2.5-flash-lite"
     cors_origins: str = "http://localhost:5173"
 
 
