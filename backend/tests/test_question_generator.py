@@ -82,3 +82,43 @@ async def test_missing_draft_question_yields_empty_string():
     result = await g.next_question(phase="exploration", summary="", history=HISTORY)
     assert result.question == ""
     assert result.valid is True
+
+
+CONFLICT_HISTORY_START = [
+    {"role": "agent", "content": "Here are two clashing requirements — how should we resolve them?"},
+    {"role": "stakeholder", "content": "Well, both are important to me for different reasons."},
+]
+
+
+@pytest.mark.asyncio
+async def test_conflict_kind_first_probe_clarifies_first_requirement():
+    llm = RecordingLLM()
+    g = QuestionGenerator(llm=llm)
+    result = await g.next_question(
+        phase="validation", summary="conflict ctx", history=CONFLICT_HISTORY_START, kind="conflict_resolution"
+    )
+    assert result.strategy == "clarify_intent_a"
+    # the conflict directive (not an interview one) is embedded in the single prompt
+    assert "FIRST conflicting requirement" in llm.calls[0]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_conflict_kind_progression_advances_with_prior_conflict_turns():
+    llm = RecordingLLM()
+    g = QuestionGenerator(llm=llm)
+    history = CONFLICT_HISTORY_START + [
+        {"role": "agent", "content": "Q1?", "strategy": "clarify_intent_a"},
+        {"role": "stakeholder", "content": "Because it saves the team a lot of manual effort."},
+    ]
+    result = await g.next_question(
+        phase="validation", summary="conflict ctx", history=history, kind="conflict_resolution"
+    )
+    assert result.strategy == "clarify_intent_b"
+
+
+@pytest.mark.asyncio
+async def test_interview_kind_unchanged_default():
+    llm = RecordingLLM()
+    g = QuestionGenerator(llm=llm)
+    result = await g.next_question(phase="exploration", summary="", history=HISTORY)
+    assert result.strategy == "concept"  # default kind stays interview

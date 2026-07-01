@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .context_manager import ContextManager
-from .strategy_selector import StrategySelector
+from .strategy_selector import StrategySelector, ConflictStrategySelector
 from .mistake_validator import taxonomy_block
 
 _STRATS = json.loads(
@@ -47,17 +47,24 @@ class QuestionGenerator:
         llm,
         ctx: Optional[ContextManager] = None,
         sel: Optional[StrategySelector] = None,
+        conflict_sel: Optional[ConflictStrategySelector] = None,
     ) -> None:
         self.llm = llm
         self.ctx = ctx or ContextManager()
         self.sel = sel or StrategySelector()
+        self.conflict_sel = conflict_sel or ConflictStrategySelector()
 
-    async def next_question(self, *, phase: str, summary: str, history: list) -> GeneratedQuestion:
+    async def next_question(
+        self, *, phase: str, summary: str, history: list, kind: str = "interview"
+    ) -> GeneratedQuestion:
         agent_history = [t.get("strategy") for t in history if t["role"] == "agent" and t.get("strategy")]
         last_stakeholder = next(
             (t["content"] for t in reversed(history) if t["role"] == "stakeholder"), ""
         )
-        strategy = self.sel.choose(agent_history=agent_history, last_stakeholder=last_stakeholder)
+        if kind == "conflict_resolution":
+            strategy = self.conflict_sel.choose(agent_history=agent_history)
+        else:
+            strategy = self.sel.choose(agent_history=agent_history, last_stakeholder=last_stakeholder)
 
         context_prompt = self.ctx.build_prompt(phase=phase, summary=summary, history=history)
         prompt = (
