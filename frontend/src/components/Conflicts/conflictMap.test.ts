@@ -12,6 +12,7 @@ const conflict = (id: string, reqAId: string, reqBId: string): Conflict => ({
   resolution_sessions: [],
   proposal: null,
   votes: [],
+  resolutions: [],
   detected_at: "2026-01-01T00:00:00Z",
 });
 

@@ -24,6 +24,13 @@ export type ResolutionVote = {
   voted_at: string;
 };
 
+export type ResolutionStance = {
+  stakeholder: string | null;
+  decision: string;
+  statement: string | null;
+  captured_at: string;
+};
+
 export type Conflict = {
   id: string;
   project_id: string;
@@ -34,6 +41,7 @@ export type Conflict = {
   resolution_sessions: ResolutionSessionRef[];
   proposal: ResolutionProposal | null;
   votes: ResolutionVote[];
+  resolutions: ResolutionStance[];
   detected_at: string;
 };
 
@@ -74,6 +82,7 @@ export const applyResolution = (
 export type ResolutionCard = {
   proposal: ResolutionProposal | null;
   my_vote: ResolutionVote | null;
+  my_resolution: ResolutionStance | null;
 };
 
 export const getResolutionCard = (sessionId: string) =>

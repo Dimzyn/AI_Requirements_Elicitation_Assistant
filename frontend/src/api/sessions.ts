@@ -1,4 +1,5 @@
 import { api } from "./client";
+import type { ResolutionStance } from "./conflicts";
 
 export type Session = {
   id: string;
@@ -40,10 +41,12 @@ export const postTurn = (id: string, content: string, count = 5) =>
   api.post<PostTurnResponse>(`/sessions/${id}/turns`, { content }, { params: { count } }).then((r) => r.data);
 export const postMessage = (id: string, content: string) =>
   api
-    .post<{ stakeholder_turn_id: string; session_title?: string | null; wrap_up_suggested?: boolean }>(
-      `/sessions/${id}/messages`,
-      { content }
-    )
+    .post<{
+      stakeholder_turn_id: string;
+      session_title?: string | null;
+      wrap_up_suggested?: boolean;
+      resolution?: ResolutionStance | null;
+    }>(`/sessions/${id}/messages`, { content })
     .then((r) => r.data);
 
 export const finishSession = (id: string) =>
