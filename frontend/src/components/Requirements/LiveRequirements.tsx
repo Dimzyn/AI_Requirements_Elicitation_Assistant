@@ -32,7 +32,7 @@ export default function LiveRequirements() {
 
   return (
     <aside className="flex min-h-0 flex-col gap-3.5 overflow-y-auto border-l border-border bg-surface p-4">
-      <div className="flex items-center justify-between">
+      <div className="flex shrink-0 items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground">Live Requirements</h2>
         {activeId && (
           <div className="flex gap-1.5">
@@ -57,7 +57,7 @@ export default function LiveRequirements() {
         const items = grouped[k] || [];
         if (items.length === 0) return null;
         return (
-          <div key={k} className="overflow-hidden rounded-xl border border-border bg-surface">
+          <div key={k} className="shrink-0 overflow-hidden rounded-xl border border-border bg-surface">
             <div className="flex items-center justify-between border-b border-border bg-surface-muted px-3 py-2.5">
               <span className="text-[11px] font-semibold text-foreground">
                 {TYPE_LABEL[k]}
