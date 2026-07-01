@@ -7,6 +7,7 @@ import ProjectSidebar from "../components/Sidebar/ProjectSidebar";
 import ChatPanel from "../components/Dialogue/ChatPanel";
 import InputBox from "../components/Dialogue/InputBox";
 import LiveRequirements from "../components/Requirements/LiveRequirements";
+import ConflictResolutionPanel from "../components/Requirements/ConflictResolutionPanel";
 import AppHeader from "../components/AppHeader";
 import ResolutionVoteCard from "../components/Dialogue/ResolutionVoteCard";
 import ResolutionRecordedCard from "../components/Dialogue/ResolutionRecordedCard";
@@ -24,6 +25,7 @@ export default function MainPage() {
   const setRequirements = useSessionStore((s) => s.setRequirements);
   const role = useAuthStore((s) => s.role);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [activeKind, setActiveKind] = useState<string | null>(null);
 
   useEffect(() => {
     if (sessionParam) setActive(sessionParam);
@@ -38,7 +40,10 @@ export default function MainPage() {
       .then((all) => {
         if (!active) return;
         const s = all.find((x) => x.id === activeId);
-        if (s) setProjectId(s.project_id);
+        if (s) {
+          setProjectId(s.project_id);
+          setActiveKind(s.kind ?? null);
+        }
       })
       .catch(() => {});
     return () => {
@@ -102,7 +107,11 @@ export default function MainPage() {
             <ChatPanel />
             <InputBox />
           </main>
-          <LiveRequirements />
+          {activeKind === "conflict_resolution" && projectId && activeId ? (
+            <ConflictResolutionPanel projectId={projectId} sessionId={activeId} />
+          ) : (
+            <LiveRequirements />
+          )}
         </div>
       ) : (
         <div className="grid min-h-0 grid-cols-[248px_1fr] grid-rows-[minmax(0,1fr)] overflow-hidden">
