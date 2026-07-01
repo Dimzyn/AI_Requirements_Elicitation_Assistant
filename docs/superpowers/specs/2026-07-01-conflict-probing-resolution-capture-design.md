@@ -60,11 +60,18 @@ stakeholder turn (conflict session)
 **Strategies** (new entries in
 [backend/app/prompts/strategy_prompts.json](../../../backend/app/prompts/strategy_prompts.json)):
 
-- `clarify_intent_a` — ask *why* requirement A matters / what breaks without it; reference A by name.
-- `clarify_intent_b` — ask about the need behind requirement B; reference B by name.
+- `clarify_intent_a` — ask *why* the first requirement matters / what breaks without it; reference it by name.
+- `clarify_intent_b` — ask about the need behind the second requirement; reference it by name.
 - `weigh_priority` — ask which matters more in practice, or under what conditions each should apply (a context split).
 - `explore_middle_ground` — propose or ask for a concrete compromise that could satisfy both (scope by context, threshold, or phase).
 - `confirm_resolution` — restate the emerging resolution as ONE concrete option and ask the stakeholder to confirm it (one wins / compromise / restatement).
+
+Prompt wording is **perspective-neutral** ("the first requirement" / "the other need")
+rather than "your requirement," because in a cross-stakeholder conflict the second
+requirement belongs to the *other* stakeholder. The stored conflict `summary` already
+encodes the same-vs-cross framing ([conflict_resolution.py:76](../../../backend/app/services/conflict_resolution.py)),
+so the generated question inherits the right point of view without the strategy prompt
+hard-coding ownership.
 
 **Selection** — a deterministic progression driven by the count of agent turns already
 in the session, cycling through the five above and then holding on
@@ -124,6 +131,11 @@ resolutions: {
   }
 }
 ```
+
+`decision` is **relative to the conflict's canonical `requirement_a` / `requirement_b`**
+(conflict-doc order), not the per-session framing — the tracker always receives the two
+statements in canonical order. This keeps both stakeholders' stances directly comparable
+for the RE (both sessions agree on what `a_wins` means).
 
 Re-running the tracker on later turns overwrites the stance (the stakeholder may change
 their mind). No new required field on `db.sessions`; `wrap_up_suggested` is reused.
