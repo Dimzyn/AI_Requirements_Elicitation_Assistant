@@ -24,8 +24,12 @@ class ResolutionSuggester:
         explanation: str,
         transcript: List[dict],
         same_stakeholder: bool,
+        resolutions: List[dict] | None = None,
     ) -> dict:
         convo = "\n".join(f"{t['role']}: {t['content']}" for t in transcript) or "(no discussion yet)"
+        stances = "\n".join(
+            f"- {s.get('decision')}: {s.get('statement') or '(no wording)'}" for s in (resolutions or [])
+        ) or "(none captured)"
         whose = (
             "two requirements from the SAME stakeholder"
             if same_stakeholder
@@ -37,13 +41,16 @@ class ResolutionSuggester:
             f'Requirement A: "{statement_a}"\n'
             f'Requirement B: "{statement_b}"\n'
             f"Why they conflict: {explanation}\n\n"
+            "Captured stakeholder resolution stance(s):\n"
+            f"{stances}\n\n"
             "Conversation with the stakeholder(s) about the conflict:\n"
             f"{convo}\n\n"
             "Propose ONE reconciled requirement statement that resolves the "
-            "contradiction, honoring whatever direction the conversation settled on "
-            "(one side wins, a compromise, or a restatement). Write it as a single "
-            "complete sentence of roughly 6 to 25 words, in the same style as the "
-            "originals. Then give a one-sentence rationale for the choice.\n\n"
+            "contradiction, honoring whatever direction the conversation and the "
+            "captured stance(s) settled on (one side wins, a compromise, or a "
+            "restatement). Write it as a single complete sentence of roughly 6 to 25 "
+            "words, in the same style as the originals. Then give a one-sentence "
+            "rationale for the choice.\n\n"
             'Return JSON: {"suggestion": str, "rationale": str}'
         )
         raw = await self.llm.generate(prompt, temperature=0.3, response_mime_type="application/json")

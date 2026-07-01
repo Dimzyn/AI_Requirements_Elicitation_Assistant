@@ -15,6 +15,7 @@ from ..schemas.conflict import (
     ProposalOut,
     RequirementRef,
     ResolutionCardOut,
+    ResolutionStanceOut,
     ResolutionSessionRef,
     ResolutionSuggestion,
     VoteIn,
@@ -145,6 +146,16 @@ async def _conflict_to_out(db, doc: dict, session_names: dict) -> ConflictOut | 
                 voted_at=v.get("voted_at"),
             )
         )
+    resolutions_out: list[ResolutionStanceOut] = []
+    for uid, stance in (doc.get("resolutions") or {}).items():
+        resolutions_out.append(
+            ResolutionStanceOut(
+                stakeholder=await _uid_to_name(db, uid),
+                decision=stance.get("decision"),
+                statement=stance.get("statement"),
+                captured_at=stance.get("captured_at"),
+            )
+        )
     return ConflictOut(
         id=str(doc["_id"]),
         project_id=doc["project_id"],
@@ -155,6 +166,7 @@ async def _conflict_to_out(db, doc: dict, session_names: dict) -> ConflictOut | 
         resolution_sessions=await _resolution_refs(db, str(doc["_id"]), session_names),
         proposal=ProposalOut(**prop) if prop else None,
         votes=votes_out,
+        resolutions=resolutions_out,
         detected_at=doc["detected_at"],
     )
 
@@ -474,6 +486,7 @@ async def suggest_resolution(cid: str, user: dict = Depends(require_engineer)):
             explanation=conflict.get("explanation", ""),
             transcript=await _resolution_transcript(db, cid),
             same_stakeholder=same,
+            resolutions=list((conflict.get("resolutions") or {}).values()),
         )
     except UpstreamUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
@@ -619,7 +632,14 @@ async def get_resolution_card(sid: str, user: dict = Depends(require_stakeholder
         return ResolutionCardOut()
     proposal = conflict.get("proposal")
     mine = (conflict.get("votes") or {}).get(user["_id"])
+    my_stance = (conflict.get("resolutions") or {}).get(user["_id"])
     return ResolutionCardOut(
         proposal=ProposalOut(**proposal) if proposal else None,
         my_vote=VoteOut(stakeholder=None, **mine) if mine else None,
+        my_resolution=ResolutionStanceOut(
+            stakeholder=None,
+            decision=my_stance["decision"],
+            statement=my_stance.get("statement"),
+            captured_at=my_stance["captured_at"],
+        ) if my_stance else None,
     )
