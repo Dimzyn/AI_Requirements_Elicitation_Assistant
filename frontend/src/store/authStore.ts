@@ -4,8 +4,11 @@ import { persist, createJSONStorage } from "zustand/middleware";
 type AuthState = {
   token: string | null;
   role: "stakeholder" | "requirements_engineer" | null;
+  name: string | null;
+  jobTitle: string | null;
   setToken: (token: string | null) => void;
   setRole: (role: "stakeholder" | "requirements_engineer" | null) => void;
+  setProfile: (p: { name: string | null; jobTitle: string | null }) => void;
   clear: () => void;
 };
 
@@ -14,9 +17,12 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       token: null,
       role: null,
+      name: null,
+      jobTitle: null,
       setToken: (token) => set({ token }),
       setRole: (role) => set({ role }),
-      clear: () => set({ token: null, role: null }),
+      setProfile: ({ name, jobTitle }) => set({ name, jobTitle }),
+      clear: () => set({ token: null, role: null, name: null, jobTitle: null }),
     }),
     {
       name: "probing-auth",

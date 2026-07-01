@@ -28,7 +28,7 @@ async def _setup_re_with_requirement(c, re_email: str, stakeholder_email: str):
 
     # Invite + accept stakeholder
     token = (await c.post(f"/projects/{pid}/invitations", json={"email": stakeholder_email}, headers=reh)).json()["token"]
-    s_tok = (await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "S"})).json()["access_token"]
+    s_tok = (await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "S", "job_title": "Stakeholder"})).json()["access_token"]
     sh = {"Authorization": f"Bearer {s_tok}"}
 
     # Open session

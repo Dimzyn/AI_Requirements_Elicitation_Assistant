@@ -8,6 +8,7 @@ class User(BaseModel):
     email: EmailStr
     hashed_password: str
     real_name: str
+    job_title: Optional[str] = None  # stakeholder's self-described role, e.g. "Product Owner"
     phone: Optional[str] = None
     domain_level: str = "novice"  # novice|intermediate|expert
     role: str = "stakeholder"  # stakeholder | requirements_engineer

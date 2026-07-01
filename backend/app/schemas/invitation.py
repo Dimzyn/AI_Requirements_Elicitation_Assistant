@@ -12,6 +12,7 @@ class InvitationView(BaseModel):
 class AcceptRequest(BaseModel):
     password: str = Field(min_length=8)
     real_name: Optional[str] = None
+    job_title: Optional[str] = None
 
 
 class AcceptResponse(BaseModel):

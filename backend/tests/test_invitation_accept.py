@@ -25,13 +25,14 @@ async def test_view_then_accept_creates_user_and_membership():
         assert r.json()["email"] == "s@x.com"
         assert r.json()["project_title"] == "P"
 
-        r = await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "Stan"})
+        r = await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "Stan", "job_title": "Product Owner"})
         assert r.status_code == 200
         assert "access_token" in r.json()
 
         db = get_db()
         u = await db.users.find_one({"email": "s@x.com"})
         assert u["role"] == "stakeholder"
+        assert u["job_title"] == "Product Owner"
         assert await db.memberships.find_one({"project_id": pid, "user_id": str(u["_id"])})
         inv = await db.invitations.find_one({"token": token})
         assert inv["status"] == "accepted"
@@ -54,11 +55,19 @@ async def test_new_account_requires_name():
         assert await db.users.find_one({"email": "s@x.com"}) is None
         assert await db.memberships.find_one({"project_id": pid}) is None
 
-        # Providing a name succeeds and stores it verbatim
+        # Name present but missing role -> still rejected
         r = await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "Stan Lee"})
+        assert r.status_code == 400
+        r = await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "Stan Lee", "job_title": "  "})
+        assert r.status_code == 400
+        assert await db.users.find_one({"email": "s@x.com"}) is None
+
+        # Providing both name and role succeeds and stores them verbatim
+        r = await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "Stan Lee", "job_title": "End User"})
         assert r.status_code == 200
         u = await db.users.find_one({"email": "s@x.com"})
         assert u["real_name"] == "Stan Lee"
+        assert u["job_title"] == "End User"
 
 
 @pytest.mark.asyncio
@@ -66,8 +75,8 @@ async def test_accept_twice_is_rejected():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         h, pid = await _re_and_project(c)
         token = (await c.post(f"/projects/{pid}/invitations", json={"email": "s@x.com"}, headers=h)).json()["token"]
-        await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "Stan"})
-        r = await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "Stan"})
+        await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "Stan", "job_title": "Stakeholder"})
+        r = await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "Stan", "job_title": "Stakeholder"})
         assert r.status_code == 409
 
 

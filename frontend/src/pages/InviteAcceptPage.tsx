@@ -14,6 +14,7 @@ export default function InviteAcceptPage() {
   const [info, setInfo] = useState<InvitationView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [realName, setRealName] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -30,7 +31,12 @@ export default function InviteAcceptPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const access = await acceptInvitation(token, password, realName || undefined);
+      const access = await acceptInvitation(
+        token,
+        password,
+        realName || undefined,
+        jobTitle || undefined
+      );
       // Joining as a new stakeholder must start clean — clear any prior account's
       // in-memory chat/requirements left over from this browser tab.
       resetUserScopedStores();
@@ -75,6 +81,13 @@ export default function InviteAcceptPage() {
           value={realName}
           required
           onChange={(e) => setRealName(e.target.value)}
+        />
+        <input
+          className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground transition placeholder:text-muted/70 focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"
+          placeholder="Your role (e.g. Product Owner, End User)"
+          value={jobTitle}
+          required
+          onChange={(e) => setJobTitle(e.target.value)}
         />
         <input
           className="w-full rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-foreground transition placeholder:text-muted/70 focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/20"

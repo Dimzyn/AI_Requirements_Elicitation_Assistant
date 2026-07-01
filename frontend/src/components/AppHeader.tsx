@@ -14,6 +14,7 @@ export default function AppHeader({
   backLabel?: string;
 }) {
   const role = useAuthStore((s) => s.role);
+  const name = useAuthStore((s) => s.name);
   const theme = useThemeStore((s) => s.theme);
   const toggle = useThemeStore((s) => s.toggle);
   const nav = useNavigate();
@@ -46,6 +47,14 @@ export default function AppHeader({
         </span>
       )}
       <div className="flex-1" />
+      {role === "requirements_engineer" && name && (
+        <span
+          className="max-w-[200px] truncate text-sm font-medium text-foreground"
+          title={name}
+        >
+          {name}
+        </span>
+      )}
       <button
         onClick={toggle}
         title="Toggle theme"

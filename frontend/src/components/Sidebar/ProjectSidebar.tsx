@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { myMemberProjects, type Project } from "../../api/projects";
 import { openProjectSession, listSessions, type Session } from "../../api/sessions";
 import { useSessionStore } from "../../store/sessionStore";
+import { useAuthStore } from "../../store/authStore";
 
 // Refresh sessions periodically so a conflict-resolution chat the engineer just
 // triggered shows up for the stakeholder without a manual reload.
@@ -9,6 +10,11 @@ const POLL_MS = 8000;
 
 export default function ProjectSidebar() {
   const { setActive, setSessions, activeId } = useSessionStore();
+  const name = useAuthStore((s) => s.name);
+  const role = useAuthStore((s) => s.role);
+  const jobTitle = useAuthStore((s) => s.jobTitle);
+  const roleLabel =
+    jobTitle || (role === "requirements_engineer" ? "Requirements Engineer" : "Stakeholder");
   const [projects, setProjects] = useState<Project[]>([]);
   const [mySessions, setMySessions] = useState<Session[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -111,6 +117,23 @@ export default function ProjectSidebar() {
           );
         })}
       </div>
+      {name && (
+        <div className="border-t border-border p-3">
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent text-xs font-semibold uppercase text-accent-foreground">
+              {name.charAt(0)}
+            </span>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-foreground" title={name}>
+                {name}
+              </div>
+              <div className="truncate text-xs text-muted" title={roleLabel}>
+                {roleLabel}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

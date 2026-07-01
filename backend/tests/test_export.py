@@ -34,7 +34,7 @@ async def _re_project_and_session(c, project_title="POS"):
     reh = {"Authorization": f"Bearer {re_tok}"}
     pid = (await c.post("/projects", json={"title": project_title}, headers=reh)).json()["id"]
     token = (await c.post(f"/projects/{pid}/invitations", json={"email": "sh_exp@x.com"}, headers=reh)).json()["token"]
-    s_tok = (await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "S"})).json()["access_token"]
+    s_tok = (await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "S", "job_title": "Stakeholder"})).json()["access_token"]
     sh = {"Authorization": f"Bearer {s_tok}"}
     sid = (await c.post(f"/projects/{pid}/session", headers=sh)).json()["id"]
     return reh, sh, pid, sid

@@ -10,6 +10,6 @@ async def _re_project_and_invited_stakeholder(c):
     reh = {"Authorization": f"Bearer {re_tok}"}
     pid = (await c.post("/projects", json={"title": "P"}, headers=reh)).json()["id"]
     token = (await c.post(f"/projects/{pid}/invitations", json={"email": "s@x.com"}, headers=reh)).json()["token"]
-    s_tok = (await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "S"})).json()["access_token"]
+    s_tok = (await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "S", "job_title": "Stakeholder"})).json()["access_token"]
     sh = {"Authorization": f"Bearer {s_tok}"}
     return reh, sh, pid

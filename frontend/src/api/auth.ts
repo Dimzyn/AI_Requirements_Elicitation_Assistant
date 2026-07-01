@@ -11,6 +11,7 @@ export type UserProfile = {
   id: string;
   email: string;
   real_name: string;
+  job_title: string | null;
   role: "stakeholder" | "requirements_engineer";
 };
 

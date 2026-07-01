@@ -52,11 +52,15 @@ async def accept_invitation(token: str, body: AcceptRequest):
         real_name = (body.real_name or "").strip()
         if not real_name:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "name required")
+        job_title = (body.job_title or "").strip()
+        if not job_title:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "role required")
         now = datetime.now(timezone.utc)
         doc = {
             "email": inv["email"],
             "hashed_password": hash_password(body.password),
             "real_name": real_name,
+            "job_title": job_title,
             "phone": None,
             "domain_level": "novice",
             "role": "stakeholder",

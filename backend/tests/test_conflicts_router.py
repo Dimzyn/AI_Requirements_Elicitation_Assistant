@@ -33,7 +33,7 @@ async def _setup_project_with_two_reqs(c, re_email, sh_email, sh_name="Alice"):
     reh = await _create_re(c, re_email)
     pid = (await c.post("/projects", json={"title": "Conflict Test"}, headers=reh)).json()["id"]
     token = (await c.post(f"/projects/{pid}/invitations", json={"email": sh_email}, headers=reh)).json()["token"]
-    s_tok = (await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": sh_name})).json()["access_token"]
+    s_tok = (await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": sh_name, "job_title": "Stakeholder"})).json()["access_token"]
     sh = {"Authorization": f"Bearer {s_tok}"}
     sid = (await c.post(f"/projects/{pid}/session", headers=sh)).json()["id"]
 

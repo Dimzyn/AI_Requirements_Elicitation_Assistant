@@ -45,5 +45,6 @@ async def get_me(user_id: str = Depends(current_user_id_from_token)):
         id=str(user["_id"]),
         email=user["email"],
         real_name=user["real_name"],
+        job_title=user.get("job_title"),
         role=user.get("role", "stakeholder"),
     )

@@ -29,7 +29,7 @@ async def test_list_members_after_accept():
         h = {"Authorization": f"Bearer {await _re_token(c)}"}
         pid = (await c.post("/projects", json={"title": "P"}, headers=h)).json()["id"]
         token = (await c.post(f"/projects/{pid}/invitations", json={"email": "s@x.com"}, headers=h)).json()["token"]
-        await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "Stan"})
+        await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": "Stan", "job_title": "Stakeholder"})
         r = await c.get(f"/projects/{pid}/members", headers=h)
         assert r.status_code == 200
         members = r.json()

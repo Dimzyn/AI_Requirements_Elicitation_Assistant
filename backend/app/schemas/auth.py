@@ -22,4 +22,5 @@ class UserProfile(BaseModel):
     id: str
     email: str
     real_name: str
+    job_title: str | None = None
     role: str

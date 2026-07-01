@@ -105,7 +105,7 @@ async def _create_re(c, email):
 
 async def _add_stakeholder(c, reh, pid, email, name):
     token = (await c.post(f"/projects/{pid}/invitations", json={"email": email}, headers=reh)).json()["token"]
-    s_tok = (await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": name})).json()["access_token"]
+    s_tok = (await c.post(f"/invitations/{token}/accept", json={"password": "Stake123!", "real_name": name, "job_title": "Stakeholder"})).json()["access_token"]
     sh = {"Authorization": f"Bearer {s_tok}"}
     sid = (await c.post(f"/projects/{pid}/session", headers=sh)).json()["id"]
     return sh, sid
