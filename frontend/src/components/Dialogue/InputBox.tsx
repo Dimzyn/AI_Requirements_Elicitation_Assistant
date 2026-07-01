@@ -175,7 +175,9 @@ export default function InputBox() {
       {wrapUp && (
         <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-xs text-foreground">
           <span>
-            It sounds like we've covered a lot — anything else you'd like to add, or shall we wrap up?
+            {activeSession?.kind === "conflict_resolution"
+              ? "Sounds like you've settled on a direction — confirm it, or keep discussing?"
+              : "It sounds like we've covered a lot — anything else you'd like to add, or shall we wrap up?"}
           </span>
           <div className="flex shrink-0 gap-1.5">
             <button
