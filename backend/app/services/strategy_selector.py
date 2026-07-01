@@ -32,3 +32,27 @@ class StrategySelector:
             return "related_concept"
 
         return "related_concept" if agent_history[-1] == "concept" else "concept"
+
+
+class ConflictStrategySelector:
+    """Deterministic probing progression for conflict-resolution sessions.
+
+    Unlike the interview StrategySelector, this never pivots to unrelated topics:
+    every step drives toward reconciling the two conflicting requirements. The
+    index is the number of prior conflict-strategy agent turns (the opener has no
+    strategy, so it is excluded by the caller).
+    """
+
+    PROGRESSION = [
+        "clarify_intent_a",
+        "clarify_intent_b",
+        "weigh_priority",
+        "explore_middle_ground",
+        "confirm_resolution",
+    ]
+
+    def choose(self, *, agent_history: list[str]) -> str:
+        idx = len(agent_history)
+        if idx >= len(self.PROGRESSION):
+            return self.PROGRESSION[-1]
+        return self.PROGRESSION[idx]
