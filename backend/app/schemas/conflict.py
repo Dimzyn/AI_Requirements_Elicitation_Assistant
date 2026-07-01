@@ -27,6 +27,13 @@ class VoteOut(BaseModel):
     voted_at: datetime
 
 
+class ResolutionStanceOut(BaseModel):
+    stakeholder: str | None = None
+    decision: str
+    statement: str | None = None
+    captured_at: datetime
+
+
 class ProposeIn(BaseModel):
     statement: str
     rationale: str | None = None
@@ -42,6 +49,7 @@ class ConflictOut(BaseModel):
     resolution_sessions: list[ResolutionSessionRef] = []
     proposal: ProposalOut | None = None
     votes: list[VoteOut] = []
+    resolutions: list[ResolutionStanceOut] = []
     detected_at: datetime
 
 
@@ -72,3 +80,4 @@ class VoteIn(BaseModel):
 class ResolutionCardOut(BaseModel):
     proposal: ProposalOut | None = None
     my_vote: VoteOut | None = None
+    my_resolution: ResolutionStanceOut | None = None
