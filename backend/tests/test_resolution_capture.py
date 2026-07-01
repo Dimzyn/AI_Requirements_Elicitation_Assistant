@@ -87,3 +87,22 @@ async def test_resolution_not_reached_stores_nothing(monkeypatch):
         assert body["resolution"] is None
         conf = await get_db().conflicts.find_one({"_id": ObjectId(cid)})
         assert conf.get("resolutions", {}) == {}
+
+
+class RaisingTracker:
+    async def track(self, **kwargs):
+        raise RuntimeError("upstream boom")
+
+
+@pytest.mark.asyncio
+async def test_tracker_exception_degrades_to_not_reached(monkeypatch):
+    monkeypatch.setattr(dialogue_mod, "_make_resolution_tracker", lambda: RaisingTracker())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        sh, uid, cid, crid = await _setup_conflict_session(c)
+        r = await c.post(f"/sessions/{crid}/messages", json={"content": "Hard to say."}, headers=sh)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["resolution"] is None
+        assert body["wrap_up_suggested"] is False
+        conf = await get_db().conflicts.find_one({"_id": ObjectId(cid)})
+        assert conf.get("resolutions", {}) == {}

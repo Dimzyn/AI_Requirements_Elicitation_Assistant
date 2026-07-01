@@ -12,6 +12,7 @@ export default function ResolutionRecordedCard({ sessionId }: { sessionId: strin
   // the backend, so a one-shot fetch would miss it (mirrors MainPage's poll cadence).
   useEffect(() => {
     let alive = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset before re-fetching when sessionId changes
     setStance(null);
     const fetchStance = () =>
       getResolutionCard(sessionId)

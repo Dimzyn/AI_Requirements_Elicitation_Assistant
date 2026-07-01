@@ -213,8 +213,11 @@ async def _track_resolution(db, session: dict, sid: str, now) -> dict | None:
     if not req_a or not req_b:
         return None
 
-    sess_a = await db.sessions.find_one({"_id": ObjectId(req_a["session_id"])})
-    sess_b = await db.sessions.find_one({"_id": ObjectId(req_b["session_id"])})
+    try:
+        sess_a = await db.sessions.find_one({"_id": ObjectId(req_a["session_id"])})
+        sess_b = await db.sessions.find_one({"_id": ObjectId(req_b["session_id"])})
+    except Exception:
+        sess_a = sess_b = None
     same = bool(sess_a and sess_b and sess_a.get("stakeholder_id") == sess_b.get("stakeholder_id"))
 
     transcript = [
