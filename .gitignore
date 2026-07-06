@@ -18,6 +18,10 @@ dist/
 # Test artifacts
 test-results/
 playwright-report/
+frontend/demo/output/
+
+# Local reference material (university PDFs, not source)
+guideline/
 
 # Tooling
 .codegraph/

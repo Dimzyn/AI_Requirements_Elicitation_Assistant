@@ -88,7 +88,7 @@ export default function InputBox() {
     appendTurns([optimistic]);
 
     setStatus("validating");
-    let wrapSuggested = false;
+    let wrapSuggested: boolean;
     try {
       const { stakeholder_turn_id, session_title, wrap_up_suggested } = await postMessage(
         session_id,
