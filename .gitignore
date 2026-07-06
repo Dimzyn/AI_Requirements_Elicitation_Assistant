@@ -20,8 +20,9 @@ test-results/
 playwright-report/
 frontend/demo/output/
 
-# Local reference material (university PDFs, not source)
+# Local reference material (university PDFs, report drafts, design notes)
 guideline/
+docs/
 
 # Tooling
 .codegraph/
