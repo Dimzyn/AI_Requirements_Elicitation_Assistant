@@ -23,9 +23,6 @@ playwright-report/
 guideline/
 docs/
 
-# Tooling
-.codegraph/
-.superpowers/
 
 # IDE
 .idea/
