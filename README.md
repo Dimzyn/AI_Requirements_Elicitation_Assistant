@@ -143,6 +143,14 @@ npm run build      # tsc type-check + vite production build
 npm test           # vitest run (node-env unit tests; Playwright owns the browser path)
 ```
 
+End-to-end (Playwright, Chromium) — expects the app already running at
+`http://localhost:5173` (e.g. via `docker compose up -d`):
+
+```bash
+cd frontend
+npx playwright test               # override target with E2E_BASE_URL=<url>
+```
+
 ---
 
 ## Local development (without Docker)
@@ -174,9 +182,9 @@ npm run dev        # http://localhost:5173
 │   ├── app/                  # FastAPI app (routers, services, schemas, models)
 │   ├── scripts/              # ops scripts (e.g. promote_user.py)
 │   └── tests/                # pytest suite
-├── frontend/
-│   └── src/                  # React app (pages, components, stores, api)
-└── docs/                     # design specs & plans
+└── frontend/
+    ├── src/                  # React app (pages, components, stores, api) + colocated unit tests
+    └── tests/e2e/            # Playwright end-to-end suite
 ```
 
 ---
