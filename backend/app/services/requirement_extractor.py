@@ -1,5 +1,6 @@
-import json
 from typing import List
+
+from .llm_service import first_json_object
 
 
 class RequirementExtractor:
@@ -103,5 +104,7 @@ class RequirementExtractor:
             f"Text:\n\"\"\"{stakeholder_text}\"\"\""
         )
         raw = await self.llm.generate(prompt, temperature=0.2, response_mime_type="application/json")
-        reqs = json.loads(raw).get("requirements", [])
+        # A genuinely unparseable payload still raises: the dialogue router
+        # degrades that to "no requirements this turn" rather than a 500.
+        reqs = first_json_object(raw).get("requirements", [])
         return reqs[:5]

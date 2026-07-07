@@ -58,3 +58,14 @@ async def test_track_unparseable_json_is_not_reached():
         statement_a="A", statement_b="B", explanation="E", transcript=_TRANSCRIPT, same_stakeholder=False
     )
     assert out == {"reached": False, "decision": None, "statement": None}
+
+
+@pytest.mark.asyncio
+async def test_track_tolerates_extra_content_after_json():
+    # A reached resolution must not be silently downgraded to "keep probing"
+    # just because the model appended stray text after the JSON document.
+    stub = Stub('{"reached": true, "decision": "b_wins", "statement": "Sign-off required."}\nDone!')
+    out = await ResolutionTracker(llm=stub).track(
+        statement_a="A", statement_b="B", explanation="E", transcript=_TRANSCRIPT, same_stakeholder=False
+    )
+    assert out == {"reached": True, "decision": "b_wins", "statement": "Sign-off required."}

@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
+from .llm_service import first_json_object
+
 _TAX = json.loads(
     (Path(__file__).parent.parent / "prompts" / "mistake_taxonomy.json").read_text(encoding="utf-8")
 )
@@ -50,7 +52,7 @@ class MistakeValidator:
             temperature=0.1,
             response_mime_type="application/json",
         )
-        data = json.loads(raw)
+        data = first_json_object(raw)
         return Verdict(
             valid=bool(data.get("valid")),
             mistakes=list(data.get("mistakes", [])),

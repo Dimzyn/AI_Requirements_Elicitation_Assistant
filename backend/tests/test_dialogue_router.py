@@ -3,7 +3,8 @@ from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.db.mongo import get_db
 from app.routers import dialogue as dialogue_mod
-from app.services.question_generator import GeneratedQuestion
+from app.services.llm_service import UpstreamUnavailable
+from app.services.question_generator import GeneratedQuestion, QuestionParseError
 from tests.helpers import _re_project_and_invited_stakeholder
 
 
@@ -22,6 +23,21 @@ class FakeGen:
             valid=True,
             mistakes=[],
         )
+
+
+class FlakyGen(FakeGen):
+    """Generates questions normally until the Nth call, which raises."""
+
+    def __init__(self, fail_on: int, exc: Exception):
+        super().__init__()
+        self.fail_on = fail_on
+        self.exc = exc
+
+    async def next_question(self, *, phase, summary, history, kind="interview"):
+        if self.calls + 1 >= self.fail_on:
+            self.calls += 1
+            raise self.exc
+        return await super().next_question(phase=phase, summary=summary, history=history, kind=kind)
 
 
 class FakeExtractor:
@@ -381,6 +397,95 @@ async def test_completed_session_rejects_questions(monkeypatch):
         assert complete_r.status_code == 200, complete_r.text
         r = await c.post(f"/sessions/{sid}/questions", headers=sh)
         assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
+async def test_post_turn_returns_503_when_llm_unavailable(monkeypatch):
+    """Upstream outage before any question is generated maps to 503, not a 500."""
+    monkeypatch.setattr(
+        dialogue_mod,
+        "_make_generator",
+        lambda: FlakyGen(fail_on=1, exc=UpstreamUnavailable("Gemini is temporarily overloaded.")),
+    )
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/turns", json={"content": "I want a POS system."}, headers=sh)
+        assert r.status_code == 503, r.text
+        assert "overloaded" in r.json()["detail"].lower()
+        # the stakeholder's reply was persisted before generation failed
+        turns = (await c.get(f"/sessions/{sid}/turns", headers=sh)).json()
+        assert [t["content"] for t in turns if t["role"] == "stakeholder"] == ["I want a POS system."]
+
+
+@pytest.mark.asyncio
+async def test_post_turn_returns_partial_questions_when_generation_fails_midway(monkeypatch):
+    # Live failure 2026-07-07: question 3 of 5 died on malformed Gemini JSON and the
+    # whole turn 500'd even though the stakeholder message + 2 questions were already
+    # in Mongo. The endpoint must return the questions that succeeded instead, so the
+    # response always matches what was persisted.
+    fg = FlakyGen(fail_on=3, exc=UpstreamUnavailable("model returned unparseable output"))
+    monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/turns", json={"content": "I want a POS."}, headers=sh)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert [q["content"] for q in body["questions"]] == ["Q1: what about X?", "Q2: what about X?"]
+        # the loop stops at the failure instead of burning attempts 4 and 5
+        assert fg.calls == 3
+        # persisted turns match the response: greeting + stakeholder + 2 agent questions
+        turns = (await c.get(f"/sessions/{sid}/turns", headers=sh)).json()
+        assert len(turns) == 4
+
+
+@pytest.mark.asyncio
+async def test_post_turn_surfaces_unexpected_error_when_first_question_fails(monkeypatch):
+    # Partial degradation must not swallow genuine bugs: a non-upstream error still
+    # propagates loudly instead of returning 200 with an empty list.
+    monkeypatch.setattr(
+        dialogue_mod, "_make_generator", lambda: FlakyGen(fail_on=1, exc=RuntimeError("boom"))
+    )
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        with pytest.raises(RuntimeError, match="boom"):
+            await c.post(f"/sessions/{sid}/turns", json={"content": "hello"}, headers=sh)
+
+
+@pytest.mark.asyncio
+async def test_post_turn_returns_503_on_unparseable_llm_payload(monkeypatch):
+    # QuestionParseError is an UpstreamUnavailable, so the same mapping applies.
+    monkeypatch.setattr(
+        dialogue_mod,
+        "_make_generator",
+        lambda: FlakyGen(fail_on=1, exc=QuestionParseError("Gemini returned an unreadable response.")),
+    )
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/turns", json={"content": "hi"}, headers=sh)
+        assert r.status_code == 503, r.text
+
+
+@pytest.mark.asyncio
+async def test_post_question_returns_503_on_unparseable_llm_payload(monkeypatch):
+    monkeypatch.setattr(
+        dialogue_mod,
+        "_make_generator",
+        lambda: FlakyGen(fail_on=1, exc=QuestionParseError("Gemini returned an unreadable response.")),
+    )
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/questions", headers=sh)
+        assert r.status_code == 503, r.text
 
 
 @pytest.mark.asyncio

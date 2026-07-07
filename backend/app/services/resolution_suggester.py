@@ -5,8 +5,9 @@ reviews (and edits) the draft, then commits it via PATCH /requirements/{rid}. Mi
 the JSON-mode shape of `RequirementExtractor`.
 """
 
-import json
 from typing import List
+
+from .llm_service import UpstreamUnavailable, first_json_object
 
 
 class ResolutionSuggester:
@@ -54,7 +55,14 @@ class ResolutionSuggester:
             'Return JSON: {"suggestion": str, "rationale": str}'
         )
         raw = await self.llm.generate(prompt, temperature=0.3, response_mime_type="application/json")
-        data = json.loads(raw)
+        try:
+            data = first_json_object(raw)
+        except (ValueError, TypeError) as exc:
+            # The suggest endpoint maps UpstreamUnavailable to a 503 "try again";
+            # an unreadable payload is transient the same way an overload is.
+            raise UpstreamUnavailable(
+                "Gemini returned an unreadable response. Try again in a moment."
+            ) from exc
         return {
             "suggestion": (data.get("suggestion") or "").strip(),
             "rationale": (data.get("rationale") or "").strip(),

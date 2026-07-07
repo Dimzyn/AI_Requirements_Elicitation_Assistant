@@ -9,6 +9,8 @@ not-reached result as "keep probing".
 import json
 from typing import List
 
+from .llm_service import first_json_object
+
 _VALID_DECISIONS = {"a_wins", "b_wins", "compromise", "restate"}
 _NOT_REACHED = {"reached": False, "decision": None, "statement": None}
 
@@ -55,7 +57,7 @@ class ResolutionTracker:
         )
         try:
             raw = await self.llm.generate(prompt, temperature=0.2, response_mime_type="application/json")
-            data = json.loads(raw)
+            data = first_json_object(raw)
         except (json.JSONDecodeError, ValueError, TypeError):
             return dict(_NOT_REACHED)
 

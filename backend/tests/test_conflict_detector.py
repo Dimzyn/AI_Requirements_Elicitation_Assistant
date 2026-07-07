@@ -71,3 +71,16 @@ async def test_detect_drops_malformed_and_out_of_range_pairs():
 async def test_detect_returns_empty_on_unparseable_json():
     det = ConflictDetector(llm=Stub("not json at all"))
     assert await det.detect(_reqs()) == []
+
+
+@pytest.mark.asyncio
+async def test_detect_tolerates_extra_content_after_json():
+    # gemini-2.5-flash-lite sometimes appends stray text after the JSON document;
+    # the detected conflicts must survive instead of degrading to "none found".
+    det = ConflictDetector(
+        llm=Stub('{"conflicts": [{"a": 0, "b": 1, "explanation": "x"}]}\nExtra notes.')
+    )
+    out = await det.detect(_reqs())
+    assert len(out) == 1
+    assert out[0]["requirement_a"] == "aaa"
+    assert out[0]["requirement_b"] == "bbb"

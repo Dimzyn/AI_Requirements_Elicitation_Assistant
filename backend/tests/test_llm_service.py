@@ -1,5 +1,7 @@
+import json
+
 import pytest
-from app.services.llm_service import LLMService, UpstreamUnavailable
+from app.services.llm_service import LLMService, UpstreamUnavailable, first_json_object
 
 
 class FakeClient:
@@ -251,3 +253,37 @@ async def test_retries_on_500_internal(monkeypatch):
     svc = LLMService(client=client, model="primary-m", fallback_model="fallback-m")
     out = await svc.generate("hi", temperature=0.5)
     assert out == "ok:fallback-m"
+
+
+# --- first_json_object: lenient parsing of Gemini JSON-mode payloads ---------
+# gemini-2.5-flash-lite occasionally appends stray content after the JSON
+# document even in JSON mode (observed live 2026-07-07 as "Extra data" errors).
+
+
+def test_first_json_object_parses_clean_json():
+    assert first_json_object('{"a": 1}') == {"a": 1}
+
+
+def test_first_json_object_ignores_trailing_extra_content():
+    raw = '{"a": 1}\n\nHere is a short explanation of my answer.'
+    assert first_json_object(raw) == {"a": 1}
+
+
+def test_first_json_object_takes_first_of_two_json_documents():
+    assert first_json_object('{"a": 1}\n{"a": 2}') == {"a": 1}
+
+
+def test_first_json_object_tolerates_leading_whitespace_before_trailer():
+    assert first_json_object('\n  {"a": 1}\ntrailing junk') == {"a": 1}
+
+
+def test_first_json_object_raises_on_garbage():
+    with pytest.raises(json.JSONDecodeError):
+        first_json_object("not json at all")
+
+
+def test_first_json_object_raises_type_error_on_none():
+    # Parity with json.loads(None): callers that degrade on TypeError
+    # (e.g. ConflictDetector) must keep seeing TypeError for a None payload.
+    with pytest.raises(TypeError):
+        first_json_object(None)

@@ -1,5 +1,6 @@
 import pytest
 
+from app.services.llm_service import UpstreamUnavailable
 from app.services.resolution_suggester import ResolutionSuggester
 
 
@@ -40,3 +41,24 @@ async def test_suggest_without_stances_still_works():
     )
     assert out["rationale"] == "Compromise."
     assert "(none captured)" in stub.last_kwargs["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_suggest_tolerates_extra_content_after_json():
+    stub = Stub('{"suggestion": "Threshold-based approval.", "rationale": "Middle ground."}\nCheers!')
+    out = await ResolutionSuggester(llm=stub).suggest(
+        statement_a="A", statement_b="B", explanation="E",
+        transcript=[], same_stakeholder=False,
+    )
+    assert out == {"suggestion": "Threshold-based approval.", "rationale": "Middle ground."}
+
+
+@pytest.mark.asyncio
+async def test_suggest_unparseable_payload_raises_upstream_unavailable():
+    # The suggest endpoint already maps UpstreamUnavailable to a 503 "try again";
+    # an unreadable payload must take that path instead of a raw 500.
+    with pytest.raises(UpstreamUnavailable):
+        await ResolutionSuggester(llm=Stub("not json at all")).suggest(
+            statement_a="A", statement_b="B", explanation="E",
+            transcript=[], same_stakeholder=False,
+        )

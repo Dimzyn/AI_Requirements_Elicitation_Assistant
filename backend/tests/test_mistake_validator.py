@@ -39,6 +39,15 @@ async def test_validator_flags_leading_question():
 
 
 @pytest.mark.asyncio
+async def test_validator_tolerates_extra_content_after_json():
+    llm = StubLLM('{"valid": false, "mistakes": ["vague"], "correction": "Be specific."}\nExtra text.')
+    verdict = await MistakeValidator(llm=llm).validate("Improve the system?")
+    assert verdict.valid is False
+    assert verdict.mistakes == ["vague"]
+    assert verdict.correction == "Be specific."
+
+
+@pytest.mark.asyncio
 async def test_validator_uses_low_temperature_and_json_mime():
     llm = StubLLM('{"valid": true, "mistakes": [], "correction": ""}')
     v = MistakeValidator(llm=llm)

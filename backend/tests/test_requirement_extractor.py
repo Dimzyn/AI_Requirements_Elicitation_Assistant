@@ -40,6 +40,18 @@ async def test_extract_returns_empty_list_when_array_is_empty():
 
 
 @pytest.mark.asyncio
+async def test_extract_tolerates_extra_content_after_json():
+    # Requirements from a turn must not be dropped just because the model
+    # appended stray text after the JSON document ("Extra data" errors).
+    stub = Stub(
+        '{"requirements": [{"statement":"Users can pay by card.","type":"functional"}]}'
+        "\n\nLet me know if you need anything else."
+    )
+    out = await RequirementExtractor(llm=stub).extract("I want a payment app.")
+    assert out == [{"statement": "Users can pay by card.", "type": "functional"}]
+
+
+@pytest.mark.asyncio
 async def test_extract_caps_at_five():
     # A long reply can yield several requirements; we keep at most 5 (raised from 3
     # so a measurable NFR isn't truncated away behind earlier functional ones).

@@ -1,5 +1,6 @@
-import json
 from typing import List
+
+from .llm_service import first_json_object
 
 
 class ConflictDetector:
@@ -45,7 +46,7 @@ class ConflictDetector:
             prompt, temperature=0.2, response_mime_type="application/json"
         )
         try:
-            pairs = json.loads(raw).get("conflicts", [])
+            pairs = first_json_object(raw).get("conflicts", [])
         except (ValueError, TypeError):
             return []
 

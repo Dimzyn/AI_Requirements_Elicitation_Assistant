@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import random
 from typing import Any, Optional
@@ -16,6 +17,23 @@ _TRANSIENT_MARKERS = ("UNAVAILABLE", "RESOURCE_EXHAUSTED", "INTERNAL")
 
 class UpstreamUnavailable(RuntimeError):
     """Raised when the LLM upstream stays unavailable after retries and fallback."""
+
+
+def first_json_object(raw: str) -> Any:
+    """Parse the first JSON document in a Gemini JSON-mode payload.
+
+    gemini-2.5-flash-lite occasionally appends stray content after the JSON
+    document even with response_mime_type="application/json", which strict
+    json.loads rejects with "Extra data". Decode the first document and drop
+    the trailer; any other malformed payload raises exactly like json.loads.
+    """
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        if exc.msg != "Extra data":
+            raise
+        obj, _ = json.JSONDecoder().raw_decode(raw, len(raw) - len(raw.lstrip()))
+        return obj
 
 
 def _is_transient(exc: BaseException) -> bool:
