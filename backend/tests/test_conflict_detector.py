@@ -74,6 +74,30 @@ async def test_detect_returns_empty_on_unparseable_json():
 
 
 @pytest.mark.asyncio
+async def test_detect_returns_empty_on_non_dict_json():
+    # A JSON list parses fine but isn't the promised object; degrade to "none
+    # found" instead of escaping as an AttributeError-driven 500.
+    det = ConflictDetector(llm=Stub('["not", "an", "object"]'))
+    assert await det.detect(_reqs()) == []
+
+
+@pytest.mark.asyncio
+async def test_detect_returns_empty_when_conflicts_is_not_a_list():
+    det = ConflictDetector(llm=Stub('{"conflicts": "none that I can see"}'))
+    assert await det.detect(_reqs()) == []
+
+
+@pytest.mark.asyncio
+async def test_detect_skips_non_dict_conflict_entries():
+    det = ConflictDetector(
+        llm=Stub('{"conflicts": ["garbage", {"a": 0, "b": 1, "explanation": "x"}]}')
+    )
+    out = await det.detect(_reqs())
+    assert len(out) == 1
+    assert out[0]["requirement_a"] == "aaa"
+
+
+@pytest.mark.asyncio
 async def test_detect_tolerates_extra_content_after_json():
     # gemini-2.5-flash-lite sometimes appends stray text after the JSON document;
     # the detected conflicts must survive instead of degrading to "none found".

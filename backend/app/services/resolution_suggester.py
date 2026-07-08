@@ -63,6 +63,12 @@ class ResolutionSuggester:
             raise UpstreamUnavailable(
                 "Gemini returned an unreadable response. Try again in a moment."
             ) from exc
+        if not isinstance(data, dict):
+            # A payload that parses to a non-object (e.g. a JSON list) is just as
+            # unreadable; take the same 503 path instead of an AttributeError 500.
+            raise UpstreamUnavailable(
+                "Gemini returned an unreadable response. Try again in a moment."
+            )
         return {
             "suggestion": (data.get("suggestion") or "").strip(),
             "rationale": (data.get("rationale") or "").strip(),

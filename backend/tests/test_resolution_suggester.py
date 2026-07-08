@@ -62,3 +62,14 @@ async def test_suggest_unparseable_payload_raises_upstream_unavailable():
             statement_a="A", statement_b="B", explanation="E",
             transcript=[], same_stakeholder=False,
         )
+
+
+@pytest.mark.asyncio
+async def test_suggest_non_dict_payload_raises_upstream_unavailable():
+    # A JSON list parses fine but isn't the promised object; it must take the
+    # same 503 path instead of escaping as an AttributeError-driven 500.
+    with pytest.raises(UpstreamUnavailable):
+        await ResolutionSuggester(llm=Stub('["a", "b"]')).suggest(
+            statement_a="A", statement_b="B", explanation="E",
+            transcript=[], same_stakeholder=False,
+        )

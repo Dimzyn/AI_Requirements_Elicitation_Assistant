@@ -46,14 +46,23 @@ class ConflictDetector:
             prompt, temperature=0.2, response_mime_type="application/json"
         )
         try:
-            pairs = first_json_object(raw).get("conflicts", [])
+            payload = first_json_object(raw)
         except (ValueError, TypeError):
+            return []
+        # Degrade any off-contract shape (list payload, non-list "conflicts") to
+        # "none found" — detection is best-effort and must never 500 the endpoint.
+        if not isinstance(payload, dict):
+            return []
+        pairs = payload.get("conflicts", [])
+        if not isinstance(pairs, list):
             return []
 
         n = len(requirements)
         seen: set[tuple[str, str]] = set()
         out: List[dict] = []
         for p in pairs:
+            if not isinstance(p, dict):
+                continue
             a = p.get("a")
             b = p.get("b")
             if not isinstance(a, int) or not isinstance(b, int):
