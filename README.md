@@ -131,7 +131,7 @@ docker compose down -v
 Backend (uses the project virtualenv at `backend/.venv`):
 
 ```bash
-cd backend && .venv/Scripts/python.exe -m pytest -q     # Windows
+cd backend && .\.venv\Scripts\python.exe -m pytest -q     # Windows
 # cd backend && .venv/bin/python -m pytest -q             # macOS / Linux
 ```
 
