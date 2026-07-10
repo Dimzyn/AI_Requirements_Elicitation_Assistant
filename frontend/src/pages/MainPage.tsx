@@ -21,6 +21,11 @@ export default function MainPage() {
   const sessionParam = params.get("session");
   const setActive = useSessionStore((s) => s.setActive);
   const activeId = useSessionStore((s) => s.activeId);
+  // Narrow selector (kind only) so ProjectSidebar's periodic session refresh
+  // doesn't re-render the whole page each poll.
+  const activeSessionKind = useSessionStore(
+    (s) => s.sessions.find((x) => x.id === s.activeId)?.kind
+  );
   const setTurns = useSessionStore((s) => s.setTurns);
   const setRequirements = useSessionStore((s) => s.setRequirements);
   const role = useAuthStore((s) => s.role);
@@ -118,8 +123,14 @@ export default function MainPage() {
           <ProjectSidebar />
           <main className="flex min-h-0 flex-col overflow-hidden bg-surface-muted">
             <ChatPanel />
-            {activeId && <ResolutionRecordedCard sessionId={activeId} />}
-            {activeId && <ResolutionVoteCard sessionId={activeId} />}
+            {/* Resolution cards fetch /sessions/{id}/resolution, which 404s for
+                plain interviews — only mount them for conflict-resolution chats. */}
+            {activeId && activeSessionKind === "conflict_resolution" && (
+              <>
+                <ResolutionRecordedCard sessionId={activeId} />
+                <ResolutionVoteCard sessionId={activeId} />
+              </>
+            )}
             <InputBox />
           </main>
         </div>
