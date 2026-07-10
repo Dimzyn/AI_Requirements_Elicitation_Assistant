@@ -1,7 +1,8 @@
+import asyncio
 import logging
 
 from bson import ObjectId
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..config import settings
@@ -285,11 +286,20 @@ async def _process_stakeholder_turn(
     return (wrap, None)
 
 
+async def _settle(task: "asyncio.Task") -> None:
+    """Let the side-effects task finish (so its writes persist) without letting
+    its own failure mask the generation error already being handled."""
+    try:
+        await task
+    except Exception:
+        logger.exception("stakeholder-turn side effects failed while handling a generation error")
+
+
 @router.post("/{sid}/turns", response_model=TurnResponse)
 async def post_turn(
     sid: str,
     body: TurnIn,
-    count: int = Query(default=5, ge=1, le=10),
+    count: int = Query(default=1, ge=1, le=10),
     user: dict = Depends(require_stakeholder),
 ):
     user_id = user["_id"]
@@ -318,11 +328,27 @@ async def post_turn(
     res = await db.turns.insert_one(stakeholder_doc)
     stakeholder_turn_id = str(res.inserted_id)
 
-    await _maybe_auto_name(db, session, oid, body.content)
+    async def _side_effects() -> tuple[str | None, bool, dict | None]:
+        # Auto-naming (first message only) and extraction are independent LLM
+        # calls writing disjoint session fields — run them concurrently too.
+        title, (wrap, resolution) = await asyncio.gather(
+            _maybe_auto_name(db, session, oid, body.content),
+            _process_stakeholder_turn(db, session, sid, stakeholder_turn_id, body.content, now),
+        )
+        return title, wrap, resolution
 
-    wrap_up_suggested, resolution = await _process_stakeholder_turn(
-        db, session, sid, stakeholder_turn_id, body.content, now
-    )
+    # An explicit "I'm done" wraps up without burning Gemini calls on questions
+    # the stakeholder no longer wants (saturation-based wrap-up, only knowable
+    # after extraction, still arrives WITH questions below).
+    if _looks_done(body.content):
+        session_title, wrap_up_suggested, resolution = await _side_effects()
+        return TurnResponse(
+            stakeholder_turn_id=stakeholder_turn_id,
+            questions=[],
+            wrap_up_suggested=wrap_up_suggested,
+            resolution=ResolutionStanceOut(**resolution) if resolution else None,
+            session_title=session_title,
+        )
 
     history: list[dict] = []
     async for t in db.turns.find({"session_id": sid}).sort("created_at", 1):
@@ -334,49 +360,63 @@ async def post_turn(
             }
         )
 
-    gen = _make_generator()
-    phase = session["phase"]
+    # Covered ground for the prompt: requirements captured on earlier turns.
+    # (This turn's extraction runs concurrently below and lands next turn.)
+    requirements = [
+        r["statement"]
+        async for r in db.requirements.find({"session_id": sid}, {"statement": 1})
+    ]
 
-    questions_out: list[QuestionOut] = []
-    for i in range(count):
-        try:
-            q = await gen.next_question(
-                phase=phase, summary=summary, history=history, kind=session.get("kind", "interview")
-            )
-        except UpstreamUnavailable as exc:
-            # Earlier iterations already persisted their agent turns, so return
-            # those questions (keeping the response consistent with the transcript)
-            # and only fail the request when the outage left us with none.
-            if questions_out:
-                logger.warning(
-                    "question %d/%d failed (%s); returning the %d already generated",
-                    i + 1,
-                    count,
-                    exc,
-                    len(questions_out),
-                )
-                break
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
-        agent_doc = {
+    gen = _make_generator()
+
+    # Extraction/auto-name/resolution-tracking and question generation are
+    # independent LLM pipelines, so they run concurrently: the turn costs
+    # max(extraction, questions) instead of their sum.
+    side_task = asyncio.create_task(_side_effects())
+    try:
+        generated = await gen.next_questions(
+            count=count,
+            phase=session["phase"],
+            summary=summary,
+            history=history,
+            kind=session.get("kind", "interview"),
+            requirements=requirements,
+        )
+    except UpstreamUnavailable as exc:
+        await _settle(side_task)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    except BaseException:
+        await _settle(side_task)
+        raise
+
+    session_title, wrap_up_suggested, resolution = await side_task
+
+    question_docs = [
+        {
             "session_id": sid,
             "role": "agent",
             "content": q.question,
             "strategy": q.strategy,
             "validator_attempts": q.attempts,
             "validator_verdict": "valid" if q.valid else "invalid",
-            "created_at": datetime.now(timezone.utc),
+            # Strictly increasing timestamps keep GET /turns ordering stable
+            # even though the whole batch is inserted in one write.
+            "created_at": datetime.now(timezone.utc) + timedelta(microseconds=i),
         }
-        agent_res = await db.turns.insert_one(agent_doc)
-        questions_out.append(
-            QuestionOut(id=str(agent_res.inserted_id), content=q.question, strategy=q.strategy)
-        )
-        history.append({"role": "agent", "content": q.question, "strategy": q.strategy})
+        for i, q in enumerate(generated)
+    ]
+    insert_res = await db.turns.insert_many(question_docs)
+    questions_out = [
+        QuestionOut(id=str(iid), content=q.question, strategy=q.strategy)
+        for iid, q in zip(insert_res.inserted_ids, generated)
+    ]
 
     return TurnResponse(
         stakeholder_turn_id=stakeholder_turn_id,
         questions=questions_out,
         wrap_up_suggested=wrap_up_suggested,
         resolution=ResolutionStanceOut(**resolution) if resolution else None,
+        session_title=session_title,
     )
 
 

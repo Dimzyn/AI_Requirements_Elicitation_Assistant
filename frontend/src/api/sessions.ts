@@ -32,12 +32,15 @@ export type Requirement = {
 export type PostTurnResponse = {
   stakeholder_turn_id: string;
   questions: { id: string; content: string; strategy: string }[];
+  session_title?: string | null;
+  wrap_up_suggested?: boolean;
+  resolution?: ResolutionStance | null;
 };
 
 export const listSessions = () => api.get<Session[]>("/sessions").then((r) => r.data);
 export const listAllSessions = () => api.get<Session[]>("/sessions/all").then((r) => r.data);
 export const getTurns = (id: string) => api.get<Turn[]>(`/sessions/${id}/turns`).then((r) => r.data);
-export const postTurn = (id: string, content: string, count = 5) =>
+export const postTurn = (id: string, content: string, count = 1) =>
   api.post<PostTurnResponse>(`/sessions/${id}/turns`, { content }, { params: { count } }).then((r) => r.data);
 export const postMessage = (id: string, content: string) =>
   api

@@ -52,11 +52,14 @@ class GeneratedQuestion:
 
 
 class QuestionGenerator:
-    """Generates one probing question per call via the Hybrid Intelligent Agent.
+    """Generates probing questions via the Hybrid Intelligent Agent.
 
     ``ContextManager`` (Least-to-Most) and ``StrategySelector`` (Concept / Related /
     NFR / Pivot / General) shape the prompt; the 14-mistake taxonomy is embedded as
-    a generation guard so a single LLM call yields an already-validated question.
+    a generation guard so a single LLM call yields already-validated questions.
+    ``next_question`` produces one question per call; ``next_questions`` produces a
+    whole turn's batch in ONE call, which keeps multi-question turns at single-call
+    latency and lets the model keep its own questions distinct.
     """
 
     def __init__(
@@ -72,19 +75,42 @@ class QuestionGenerator:
         self.sel = sel or StrategySelector()
         self.conflict_sel = conflict_sel or ConflictStrategySelector()
 
-    async def next_question(
-        self, *, phase: str, summary: str, history: list, kind: str = "interview"
-    ) -> GeneratedQuestion:
-        agent_history = [t.get("strategy") for t in history if t["role"] == "agent" and t.get("strategy")]
+    def _pick_strategies(self, *, count: int, history: list, kind: str) -> list[str]:
+        """Walk the selector `count` steps, feeding each pick back as if the turn
+        had already happened — the batch gets the same deterministic progression
+        (NFR every 4th, pivot after 3 drills, ...) the sequential path produced."""
+        agent_history = [
+            t.get("strategy") for t in history if t["role"] == "agent" and t.get("strategy")
+        ]
         last_stakeholder = next(
             (t["content"] for t in reversed(history) if t["role"] == "stakeholder"), ""
         )
-        if kind == "conflict_resolution":
-            strategy = self.conflict_sel.choose(agent_history=agent_history)
-        else:
-            strategy = self.sel.choose(agent_history=agent_history, last_stakeholder=last_stakeholder)
+        picks: list[str] = []
+        for _ in range(count):
+            if kind == "conflict_resolution":
+                strategy = self.conflict_sel.choose(agent_history=agent_history)
+            else:
+                strategy = self.sel.choose(
+                    agent_history=agent_history, last_stakeholder=last_stakeholder
+                )
+            agent_history = agent_history + [strategy]
+            picks.append(strategy)
+        return picks
 
-        context_prompt = self.ctx.build_prompt(phase=phase, summary=summary, history=history)
+    async def next_question(
+        self,
+        *,
+        phase: str,
+        summary: str,
+        history: list,
+        kind: str = "interview",
+        requirements: Optional[list[str]] = None,
+    ) -> GeneratedQuestion:
+        strategy = self._pick_strategies(count=1, history=history, kind=kind)[0]
+
+        context_prompt = self.ctx.build_prompt(
+            phase=phase, summary=summary, history=history, requirements=requirements
+        )
         prompt = (
             f"{context_prompt}\n\n"
             f"Strategy directive: {_STRATS[strategy]}\n\n"
@@ -119,6 +145,94 @@ class QuestionGenerator:
                 )
             logger.warning(
                 "Gemini returned an unparseable question payload (attempt %d/%d): %.200s",
+                attempt,
+                _PARSE_ATTEMPTS,
+                raw,
+            )
+        raise QuestionParseError(
+            "Gemini returned an unreadable response. Try again in a moment."
+        )
+
+    async def next_questions(
+        self,
+        *,
+        count: int,
+        phase: str,
+        summary: str,
+        history: list,
+        kind: str = "interview",
+        requirements: Optional[list[str]] = None,
+    ) -> list[GeneratedQuestion]:
+        if count <= 1:
+            return [
+                await self.next_question(
+                    phase=phase, summary=summary, history=history, kind=kind,
+                    requirements=requirements,
+                )
+            ]
+
+        strategies = self._pick_strategies(count=count, history=history, kind=kind)
+        context_prompt = self.ctx.build_prompt(
+            phase=phase, summary=summary, history=history, requirements=requirements
+        )
+        directives = "\n".join(f"{i}. {_STRATS[s]}" for i, s in enumerate(strategies, 1))
+        prompt = (
+            f"{context_prompt}\n\n"
+            f"You are generating {count} DISTINCT probing questions in this single "
+            "response, one per numbered strategy directive below. The questions must "
+            "not overlap or rephrase each other.\n"
+            f"{directives}\n\n"
+            "Instead of the single draft_question JSON described above, return JSON: "
+            '{"sub_steps": [...], "knowledge_gap": "...", "questions": '
+            '[{"strategy": "...", "draft_question": "..."}, ...]} '
+            f"with exactly {count} entries in directive order.\n\n"
+            f"{_MISTAKE_GUARD}"
+        )
+
+        for attempt in range(1, _PARSE_ATTEMPTS + 1):
+            t0 = time.perf_counter()
+            raw = await self.llm.generate(prompt, temperature=0.7, response_mime_type="application/json")
+            logger.info(
+                "probing questions generated in %.0f ms (count=%d, strategies=%s, prompt=%d chars, history=%d turns)",
+                (time.perf_counter() - t0) * 1000,
+                count,
+                ",".join(strategies),
+                len(prompt),
+                len(history),
+            )
+            try:
+                payload = first_json_object(raw)
+            except (TypeError, ValueError):
+                payload = None
+            items = payload.get("questions") if isinstance(payload, dict) else None
+            if isinstance(items, list):
+                # Strategies map positionally onto whatever parsed; the model's own
+                # strategy echo is ignored (the selector is the source of truth).
+                questions = [
+                    (item.get("draft_question") or "").strip()
+                    for item in items
+                    if isinstance(item, dict)
+                ]
+                questions = [q for q in questions if q][:count]
+                if questions:
+                    if len(questions) < count:
+                        logger.warning(
+                            "batch returned %d of %d requested questions; keeping them",
+                            len(questions),
+                            count,
+                        )
+                    return [
+                        GeneratedQuestion(
+                            question=q,
+                            strategy=strategies[i],
+                            attempts=attempt,
+                            valid=True,
+                            mistakes=[],
+                        )
+                        for i, q in enumerate(questions)
+                    ]
+            logger.warning(
+                "Gemini returned an unparseable batch payload (attempt %d/%d): %.200s",
                 attempt,
                 _PARSE_ATTEMPTS,
                 raw,

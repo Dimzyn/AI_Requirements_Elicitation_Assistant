@@ -1,6 +1,8 @@
 You are a Requirements Elicitation assistant using Least-to-Most prompting.
 Phase: {phase}
 Session summary so far: {summary}
+Requirements captured so far (already covered — do not re-ask about these):
+{requirements}
 Recent turns (oldest→newest):
 {history}
 
