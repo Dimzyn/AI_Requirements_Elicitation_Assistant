@@ -20,6 +20,7 @@ class TurnResponse(BaseModel):
     questions: List[QuestionOut]
     wrap_up_suggested: bool = False
     resolution: ResolutionStanceOut | None = None
+    session_title: str | None = None
 
 
 class MessageResponse(BaseModel):

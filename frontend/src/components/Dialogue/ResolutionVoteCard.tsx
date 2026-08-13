@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { getResolutionCard, voteResolution, type ResolutionCard } from "../../api/conflicts";
 
-// Self-contained: fetches the conflict proposal for this resolution session and
-// renders the Accept / Request-changes card. Renders nothing for normal interview
-// sessions (the endpoint 404s) or before the RE has published a proposal.
+// Fetches the conflict proposal for this resolution session and renders the
+// Accept / Request-changes card. Only mounted for conflict-resolution sessions
+// (the endpoint 404s for plain interviews); renders nothing before the RE has
+// published a proposal.
 export default function ResolutionVoteCard({ sessionId }: { sessionId: string }) {
   const [card, setCard] = useState<ResolutionCard | null>(null);
   const [comment, setComment] = useState("");

@@ -215,3 +215,160 @@ async def test_extra_content_after_json_is_tolerated():
     assert "refunds" in result.question
     assert llm.calls == 1
     assert result.attempts == 1
+
+
+# ---------------------------------------------------------------------------
+# Batched generation: N questions from ONE LLM call (next_questions)
+# ---------------------------------------------------------------------------
+
+BATCH_3 = (
+    '{"sub_steps": [], "knowledge_gap": "g", "questions": ['
+    '{"strategy": "echoed-junk", "draft_question": "Q-one?"},'
+    '{"strategy": "ignored", "draft_question": "Q-two?"},'
+    '{"strategy": "also-ignored", "draft_question": "Q-three?"}]}'
+)
+
+
+@pytest.mark.asyncio
+async def test_batch_returns_n_questions_from_one_call():
+    llm = RecordingLLM(payload=BATCH_3)
+    g = QuestionGenerator(llm=llm)
+    results = await g.next_questions(count=3, phase="exploration", summary="", history=HISTORY)
+    assert [r.question for r in results] == ["Q-one?", "Q-two?", "Q-three?"]
+    assert len(llm.calls) == 1  # the whole batch costs a single Gemini round-trip
+
+
+@pytest.mark.asyncio
+async def test_batch_strategies_come_from_selector_not_model_echo():
+    # Strategy progression is deterministic (selector iterated per slot); the
+    # model's echoed strategy strings are ignored.
+    llm = RecordingLLM(payload=BATCH_3)
+    g = QuestionGenerator(llm=llm)
+    results = await g.next_questions(count=3, phase="exploration", summary="", history=HISTORY)
+    assert [r.strategy for r in results] == ["concept", "related_concept", "concept"]
+
+
+@pytest.mark.asyncio
+async def test_batch_prompt_lists_numbered_directives_and_guard():
+    llm = RecordingLLM(
+        payload='{"questions": [{"draft_question": "a"}, {"draft_question": "b"},'
+        ' {"draft_question": "c"}, {"draft_question": "d"}]}'
+    )
+    g = QuestionGenerator(llm=llm)
+    await g.next_questions(count=4, phase="exploration", summary="", history=HISTORY)
+    prompt = llm.calls[0]["prompt"]
+    # 4th slot in the progression is the NFR probe (every 4th agent turn)
+    assert "MEASURABLE non-functional" in prompt
+    assert "1." in prompt and "4." in prompt
+    assert "distinct" in prompt.lower()
+    assert "MUST NOT commit" in prompt  # mistake guard still applies
+
+
+@pytest.mark.asyncio
+async def test_batch_count_one_uses_single_question_path():
+    llm = RecordingLLM()  # single-format payload: {"draft_question": ...}
+    g = QuestionGenerator(llm=llm)
+    results = await g.next_questions(count=1, phase="exploration", summary="", history=HISTORY)
+    assert len(results) == 1
+    assert "refunds" in results[0].question
+    assert len(llm.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_short_or_invalid_items_returns_what_parsed():
+    # Model returned 2 usable questions of the 3 requested: keep them rather
+    # than failing the turn (one item lacks draft_question).
+    llm = RecordingLLM(
+        payload='{"questions": [{"draft_question": "Q-one?"}, {"note": "no question"},'
+        ' {"draft_question": "Q-two?"}]}'
+    )
+    g = QuestionGenerator(llm=llm)
+    results = await g.next_questions(count=3, phase="exploration", summary="", history=HISTORY)
+    assert [r.question for r in results] == ["Q-one?", "Q-two?"]
+    assert len(llm.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_extra_items_truncated_to_count():
+    llm = RecordingLLM(
+        payload='{"questions": [{"draft_question": "a"}, {"draft_question": "b"},'
+        ' {"draft_question": "c"}]}'
+    )
+    g = QuestionGenerator(llm=llm)
+    results = await g.next_questions(count=2, phase="exploration", summary="", history=HISTORY)
+    assert [r.question for r in results] == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_batch_unparseable_payload_retries_once_then_raises():
+    llm = SequenceLLM("definitely not json")
+    g = QuestionGenerator(llm=llm)
+    with pytest.raises(QuestionParseError):
+        await g.next_questions(count=3, phase="exploration", summary="", history=HISTORY)
+    assert llm.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_empty_questions_list_is_a_parse_failure():
+    llm = SequenceLLM('{"questions": []}')
+    g = QuestionGenerator(llm=llm)
+    with pytest.raises(QuestionParseError):
+        await g.next_questions(count=3, phase="exploration", summary="", history=HISTORY)
+    assert llm.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_recovers_when_retry_parses():
+    llm = SequenceLLM("oops", BATCH_3)
+    g = QuestionGenerator(llm=llm)
+    results = await g.next_questions(count=3, phase="exploration", summary="", history=HISTORY)
+    assert len(results) == 3
+    assert llm.calls == 2
+    assert all(r.attempts == 2 for r in results)
+
+
+@pytest.mark.asyncio
+async def test_batch_trailer_after_json_tolerated():
+    llm = SequenceLLM(BATCH_3 + "\n\nHope this helps!")
+    g = QuestionGenerator(llm=llm)
+    results = await g.next_questions(count=3, phase="exploration", summary="", history=HISTORY)
+    assert len(results) == 3
+    assert llm.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_conflict_kind_walks_progression():
+    llm = RecordingLLM(
+        payload='{"questions": [{"draft_question": "a"}, {"draft_question": "b"}]}'
+    )
+    g = QuestionGenerator(llm=llm)
+    results = await g.next_questions(
+        count=2, phase="validation", summary="c", history=CONFLICT_HISTORY_START,
+        kind="conflict_resolution",
+    )
+    assert [r.strategy for r in results] == ["clarify_intent_a", "clarify_intent_b"]
+    prompt = llm.calls[0]["prompt"]
+    assert "FIRST conflicting requirement" in prompt
+    assert "SECOND conflicting requirement" in prompt
+
+
+@pytest.mark.asyncio
+async def test_requirements_are_injected_into_prompt():
+    llm = RecordingLLM(payload=BATCH_3)
+    g = QuestionGenerator(llm=llm)
+    await g.next_questions(
+        count=3, phase="exploration", summary="", history=HISTORY,
+        requirements=["The system shall support meal-card payment."],
+    )
+    assert "meal-card payment" in llm.calls[0]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_single_question_accepts_requirements_too():
+    llm = RecordingLLM()
+    g = QuestionGenerator(llm=llm)
+    await g.next_question(
+        phase="exploration", summary="", history=HISTORY,
+        requirements=["Delivery under 20 minutes."],
+    )
+    assert "Delivery under 20 minutes." in llm.calls[0]["prompt"]

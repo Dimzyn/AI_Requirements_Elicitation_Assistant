@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { getResolutionCard, type ResolutionStance } from "../../api/conflicts";
 import { resolutionLabel } from "../Conflicts/resolutionLabel";
 
-// Self-contained: fetches the captured resolution stance for this conflict session.
-// Renders nothing for interview sessions (the endpoint 404s) or before a resolution
-// has been captured.
+// Fetches the captured resolution stance for this conflict session. Only mounted
+// for conflict-resolution sessions (the endpoint 404s for plain interviews);
+// renders nothing before a resolution has been captured.
 export default function ResolutionRecordedCard({ sessionId }: { sessionId: string }) {
   const [stance, setStance] = useState<ResolutionStance | null>(null);
 

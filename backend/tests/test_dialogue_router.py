@@ -12,10 +12,15 @@ class FakeGen:
     def __init__(self):
         self.calls = 0
         self.history_lengths = []
+        self.batch_counts = []
+        self.requirements_seen = []
 
-    async def next_question(self, *, phase, summary, history, kind="interview"):
+    async def next_question(
+        self, *, phase, summary, history, kind="interview", requirements=None
+    ):
         self.calls += 1
         self.history_lengths.append(len(history))
+        self.requirements_seen.append(requirements)
         return GeneratedQuestion(
             question=f"Q{self.calls}: what about X?",
             strategy="concept",
@@ -24,20 +29,39 @@ class FakeGen:
             mistakes=[],
         )
 
+    async def next_questions(
+        self, *, count, phase, summary, history, kind="interview", requirements=None
+    ):
+        self.calls += 1
+        self.history_lengths.append(len(history))
+        self.batch_counts.append(count)
+        self.requirements_seen.append(requirements)
+        return [
+            GeneratedQuestion(
+                question=f"Q{i}: what about X?",
+                strategy="concept",
+                attempts=1,
+                valid=True,
+                mistakes=[],
+            )
+            for i in range(1, count + 1)
+        ]
+
 
 class FlakyGen(FakeGen):
-    """Generates questions normally until the Nth call, which raises."""
+    """Raises the given exception on every generation call."""
 
-    def __init__(self, fail_on: int, exc: Exception):
+    def __init__(self, exc: Exception):
         super().__init__()
-        self.fail_on = fail_on
         self.exc = exc
 
-    async def next_question(self, *, phase, summary, history, kind="interview"):
-        if self.calls + 1 >= self.fail_on:
-            self.calls += 1
-            raise self.exc
-        return await super().next_question(phase=phase, summary=summary, history=history, kind=kind)
+    async def next_question(self, **kwargs):
+        self.calls += 1
+        raise self.exc
+
+    async def next_questions(self, **kwargs):
+        self.calls += 1
+        raise self.exc
 
 
 class FakeExtractor:
@@ -75,7 +99,8 @@ async def _setup_session(c, monkeypatch=None):
 
 
 @pytest.mark.asyncio
-async def test_post_turn_returns_default_5_questions(monkeypatch):
+async def test_post_turn_default_generates_one_question(monkeypatch):
+    # Default count is 1 — matching the UI's default questions-per-turn.
     fg = FakeGen()
     monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
@@ -85,9 +110,97 @@ async def test_post_turn_returns_default_5_questions(monkeypatch):
         r = await c.post(f"/sessions/{sid}/turns", json={"content": "I want a POS system."}, headers=sh)
         assert r.status_code == 200, r.text
         body = r.json()
+        assert len(body["questions"]) == 1
+        assert body["stakeholder_turn_id"]
+        assert fg.batch_counts == [1]
+
+
+@pytest.mark.asyncio
+async def test_post_turn_count_5_is_one_batched_generator_call(monkeypatch):
+    # A multi-question turn costs a single generator invocation, not N.
+    fg = FakeGen()
+    monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/turns?count=5", json={"content": "I want a POS system."}, headers=sh)
+        assert r.status_code == 200, r.text
+        body = r.json()
         assert len(body["questions"]) == 5
         assert all(q["strategy"] == "concept" for q in body["questions"])
-        assert body["stakeholder_turn_id"]
+        assert fg.calls == 1
+        assert fg.batch_counts == [5]
+
+
+@pytest.mark.asyncio
+async def test_post_turn_returns_session_title(monkeypatch):
+    # The combined endpoint reports the auto-generated title so the UI can
+    # rename the sidebar without a second request.
+    fg = FakeGen()
+    monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen("Calendar Task Sync"))
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/turns", json={"content": "Sync my todos."}, headers=sh)
+        assert r.status_code == 200, r.text
+        assert r.json()["session_title"] == "Calendar Task Sync"
+
+
+@pytest.mark.asyncio
+async def test_post_turn_explicit_done_skips_generation(monkeypatch):
+    # An "I'm done" message wraps up without burning Gemini calls on questions
+    # the stakeholder no longer wants (mirrors the old UI gating).
+    fg = FakeGen()
+    monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        r = await c.post(f"/sessions/{sid}/turns", json={"content": "I think that's all, I'm done."}, headers=sh)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["wrap_up_suggested"] is True
+        assert body["questions"] == []
+        assert fg.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_post_turn_saturation_wrap_up_still_returns_questions(monkeypatch):
+    # Saturation is only known after extraction, which runs concurrently with
+    # generation — so the wrap-up suggestion arrives WITH questions, and the
+    # stakeholder can answer them or finish.
+    fg = FakeGen()
+    monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())  # never extracts
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        for i in range(2):
+            r = await c.post(f"/sessions/{sid}/turns", json={"content": f"nothing new {i}"}, headers=sh)
+            assert r.json()["wrap_up_suggested"] is False
+        r = await c.post(f"/sessions/{sid}/turns", json={"content": "nothing new again"}, headers=sh)
+        body = r.json()
+        assert body["wrap_up_suggested"] is True
+        assert len(body["questions"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_post_turn_threads_requirements_into_generator(monkeypatch):
+    # Requirements captured on earlier turns are handed to the generator as
+    # covered-ground context (fetched before this turn's extraction runs).
+    fg = FakeGen()
+    fx = FakeExtractor(items=[{"statement": "Users can pay by card.", "type": "functional"}])
+    monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: fx)
+    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        reh, sh, pid, sid = await _setup_session(c)
+        await c.post(f"/sessions/{sid}/turns", json={"content": "card payments please"}, headers=sh)
+        assert fg.requirements_seen[0] == []  # nothing extracted before turn 1
+        await c.post(f"/sessions/{sid}/turns", json={"content": "more detail"}, headers=sh)
+        assert fg.requirements_seen[1] == ["Users can pay by card."]
 
 
 @pytest.mark.asyncio
@@ -103,7 +216,7 @@ async def test_count_param_caps_at_10(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_history_grows_within_single_request(monkeypatch):
+async def test_batch_fetches_history_once(monkeypatch):
     fg = FakeGen()
     monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
@@ -112,9 +225,10 @@ async def test_history_grows_within_single_request(monkeypatch):
         reh, sh, pid, sid = await _setup_session(c)
         r = await c.post(f"/sessions/{sid}/turns?count=3", json={"content": "hello"}, headers=sh)
         assert r.status_code == 200, r.text
-        # history starts with the seeded greeting + stakeholder turn, then grows by one
-        # agent turn per generated question: [greeting, stakeholder] -> +agent1 -> +agent2
-        assert fg.history_lengths == [2, 3, 4]
+        # One generator call for the whole turn, seeing the seeded greeting +
+        # the fresh stakeholder turn; the batch keeps its own questions distinct.
+        assert fg.history_lengths == [2]
+        assert fg.batch_counts == [3]
 
 
 @pytest.mark.asyncio
@@ -149,7 +263,7 @@ async def test_get_turns_returns_history_in_order(monkeypatch):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         reh, sh, pid, sid = await _setup_session(c)
         post = await c.post(
-            f"/sessions/{sid}/turns",
+            f"/sessions/{sid}/turns?count=5",
             json={"content": "I want a POS system."},
             headers=sh,
         )
@@ -158,7 +272,7 @@ async def test_get_turns_returns_history_in_order(monkeypatch):
         r = await c.get(f"/sessions/{sid}/turns", headers=sh)
         assert r.status_code == 200, r.text
         body = r.json()
-        # 1 seeded greeting + 1 stakeholder + 5 agent turns (default count) = 7 total
+        # 1 seeded greeting + 1 stakeholder + 5 agent turns (count=5) = 7 total
         assert isinstance(body, list)
         assert len(body) == 7
         # First turn is the seeded greeting: an agent turn with no strategy badge
@@ -401,53 +515,37 @@ async def test_completed_session_rejects_questions(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_post_turn_returns_503_when_llm_unavailable(monkeypatch):
-    """Upstream outage before any question is generated maps to 503, not a 500."""
+    """Upstream outage maps to 503, and the stakeholder turn + extraction side
+    effects are persisted even though no questions could be generated."""
+    fx = FakeExtractor(items=[{"statement": "Users can pay by card.", "type": "functional"}])
     monkeypatch.setattr(
         dialogue_mod,
         "_make_generator",
-        lambda: FlakyGen(fail_on=1, exc=UpstreamUnavailable("Gemini is temporarily overloaded.")),
+        lambda: FlakyGen(UpstreamUnavailable("Gemini is temporarily overloaded.")),
     )
-    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
+    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: fx)
     monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         reh, sh, pid, sid = await _setup_session(c)
         r = await c.post(f"/sessions/{sid}/turns", json={"content": "I want a POS system."}, headers=sh)
         assert r.status_code == 503, r.text
         assert "overloaded" in r.json()["detail"].lower()
-        # the stakeholder's reply was persisted before generation failed
+        # the stakeholder's reply was persisted before generation failed ...
         turns = (await c.get(f"/sessions/{sid}/turns", headers=sh)).json()
         assert [t["content"] for t in turns if t["role"] == "stakeholder"] == ["I want a POS system."]
+        # ... and no orphaned agent turns exist (the batch failed atomically)
+        assert all(not t.get("strategy") for t in turns if t["role"] == "agent")
+        # the concurrent extraction still completed and persisted
+        reqs = [d async for d in get_db().requirements.find({"session_id": sid})]
+        assert len(reqs) == 1
 
 
 @pytest.mark.asyncio
-async def test_post_turn_returns_partial_questions_when_generation_fails_midway(monkeypatch):
-    # Live failure 2026-07-07: question 3 of 5 died on malformed Gemini JSON and the
-    # whole turn 500'd even though the stakeholder message + 2 questions were already
-    # in Mongo. The endpoint must return the questions that succeeded instead, so the
-    # response always matches what was persisted.
-    fg = FlakyGen(fail_on=3, exc=UpstreamUnavailable("model returned unparseable output"))
-    monkeypatch.setattr(dialogue_mod, "_make_generator", lambda: fg)
-    monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
-    monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-        reh, sh, pid, sid = await _setup_session(c)
-        r = await c.post(f"/sessions/{sid}/turns", json={"content": "I want a POS."}, headers=sh)
-        assert r.status_code == 200, r.text
-        body = r.json()
-        assert [q["content"] for q in body["questions"]] == ["Q1: what about X?", "Q2: what about X?"]
-        # the loop stops at the failure instead of burning attempts 4 and 5
-        assert fg.calls == 3
-        # persisted turns match the response: greeting + stakeholder + 2 agent questions
-        turns = (await c.get(f"/sessions/{sid}/turns", headers=sh)).json()
-        assert len(turns) == 4
-
-
-@pytest.mark.asyncio
-async def test_post_turn_surfaces_unexpected_error_when_first_question_fails(monkeypatch):
-    # Partial degradation must not swallow genuine bugs: a non-upstream error still
-    # propagates loudly instead of returning 200 with an empty list.
+async def test_post_turn_surfaces_unexpected_generation_error(monkeypatch):
+    # The 503 degradation must not swallow genuine bugs: a non-upstream error
+    # still propagates loudly instead of returning 200 with an empty list.
     monkeypatch.setattr(
-        dialogue_mod, "_make_generator", lambda: FlakyGen(fail_on=1, exc=RuntimeError("boom"))
+        dialogue_mod, "_make_generator", lambda: FlakyGen(RuntimeError("boom"))
     )
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
     monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
@@ -463,7 +561,7 @@ async def test_post_turn_returns_503_on_unparseable_llm_payload(monkeypatch):
     monkeypatch.setattr(
         dialogue_mod,
         "_make_generator",
-        lambda: FlakyGen(fail_on=1, exc=QuestionParseError("Gemini returned an unreadable response.")),
+        lambda: FlakyGen(QuestionParseError("Gemini returned an unreadable response.")),
     )
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
     monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())
@@ -478,7 +576,7 @@ async def test_post_question_returns_503_on_unparseable_llm_payload(monkeypatch)
     monkeypatch.setattr(
         dialogue_mod,
         "_make_generator",
-        lambda: FlakyGen(fail_on=1, exc=QuestionParseError("Gemini returned an unreadable response.")),
+        lambda: FlakyGen(QuestionParseError("Gemini returned an unreadable response.")),
     )
     monkeypatch.setattr(dialogue_mod, "_make_extractor", lambda: FakeExtractor())
     monkeypatch.setattr(dialogue_mod, "_make_title_generator", lambda: FakeTitleGen())

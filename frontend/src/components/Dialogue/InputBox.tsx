@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useSessionStore } from "../../store/sessionStore";
-import { postMessage, postQuestion, finishSession } from "../../api/sessions";
+import { postTurn, finishSession } from "../../api/sessions";
 import { useAuthStore } from "../../store/authStore";
 import type { Turn } from "../../api/sessions";
 
@@ -87,70 +87,47 @@ export default function InputBox() {
     };
     appendTurns([optimistic]);
 
-    setStatus("validating");
-    let wrapSuggested: boolean;
+    setStatus("thinking");
     try {
-      const { stakeholder_turn_id, session_title, wrap_up_suggested } = await postMessage(
-        session_id,
-        content
-      );
-      wrapSuggested = !!wrap_up_suggested;
+      // One request: the backend saves the message, then runs requirement
+      // extraction and the whole question batch concurrently.
+      const res = await postTurn(session_id, content, count);
+      const newTitle = res.session_title;
       useSessionStore.setState((s) => ({
-        turns: s.turns.map((t) => (t.id === tempId ? { ...t, id: stakeholder_turn_id } : t)),
+        turns: s.turns.map((t) => (t.id === tempId ? { ...t, id: res.stakeholder_turn_id } : t)),
         // Reflect the auto-generated name in the sidebar without a refetch.
-        sessions: session_title
-          ? s.sessions.map((se) => (se.id === session_id ? { ...se, title: session_title } : se))
+        sessions: newTitle
+          ? s.sessions.map((se) => (se.id === session_id ? { ...se, title: newTitle } : se))
           : s.sessions,
       }));
-      // The backend flags wrap-up on an explicit "I'm done" or after a few turns
-      // with no new requirement; surface the gentle prompt.
-      if (wrap_up_suggested) setWrapUp(true);
+      const agentTurns: Turn[] = res.questions.map((q) => ({
+        id: q.id,
+        role: "agent",
+        content: q.content,
+        strategy: q.strategy,
+        created_at: new Date().toISOString(),
+      }));
+      if (agentTurns.length > 0) appendTurns(agentTurns);
+      // The backend flags wrap-up on an explicit "I'm done" (no questions come
+      // back) or once extraction saturates (questions still come back).
+      if (res.wrap_up_suggested) setWrapUp(true);
     } catch (err) {
-      // /messages failed — roll back the optimistic bubble and restore the textbox.
-      useSessionStore.setState((s) => ({ turns: s.turns.filter((t) => t.id !== tempId) }));
-      setText(content);
-      setError(describeError(err));
-      setStatus("idle");
-      setBusy(false);
-      return;
-    }
-
-    // Wrapping up: pause probing-question generation. "Keep going" dismisses the
-    // banner and the stakeholder's next message resumes generation.
-    if (wrapSuggested) {
-      setStatus("idle");
-      setBusy(false);
-      return;
-    }
-
-    setStatus("thinking");
-    const results = await Promise.allSettled(
-      Array.from({ length: count }, () => postQuestion(session_id))
-    );
-    const agentTurns: Turn[] = [];
-    const failures: unknown[] = [];
-    for (const r of results) {
-      if (r.status === "fulfilled") {
-        agentTurns.push({
-          id: r.value.id,
-          role: "agent",
-          content: r.value.content,
-          strategy: r.value.strategy,
-          created_at: new Date().toISOString(),
-        });
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 503) {
+        // Generation failed AFTER the message was saved server-side: keep the
+        // bubble (re-sending would duplicate the turn) and surface the error.
+        setError(describeError(err));
       } else {
-        failures.push(r.reason);
+        // The message never landed — roll back the optimistic bubble and
+        // restore the textbox.
+        useSessionStore.setState((s) => ({ turns: s.turns.filter((t) => t.id !== tempId) }));
+        setText(content);
+        setError(describeError(err));
       }
+    } finally {
+      setStatus("idle");
+      setBusy(false);
     }
-    if (agentTurns.length > 0) appendTurns(agentTurns);
-    if (failures.length > 0) {
-      setError(
-        `${failures.length} of ${count} questions failed: ${describeError(failures[0])}`
-      );
-    }
-
-    setStatus("idle");
-    setBusy(false);
   };
 
   const onFinish = async () => {
